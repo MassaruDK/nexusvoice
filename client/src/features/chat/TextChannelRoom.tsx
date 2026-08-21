@@ -12,19 +12,26 @@ import {
   Sparkles,
   Link
 } from 'lucide-react';
-import { VoiceChannel, ChatMessage } from '../../types/index.js';
+import { VoiceChannel, ChatMessage, User } from '../../types/index.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useSocket } from '../../context/SocketContext.js';
 import { useToast } from '../../context/ToastContext.js';
 import { api } from '../../services/api.js';
 import { Avatar } from '../ui/Avatar.js';
 import { Badge } from '../ui/Badge.js';
+import { UserProfilePreviewModal } from '../profile/UserProfilePreviewModal.js';
 
 interface TextChannelRoomProps {
   channel: VoiceChannel;
+  mentionInput?: string | null;
+  onClearMention?: () => void;
 }
 
-export const TextChannelRoom: React.FC<TextChannelRoomProps> = ({ channel }) => {
+export const TextChannelRoom: React.FC<TextChannelRoomProps> = ({
+  channel,
+  mentionInput,
+  onClearMention,
+}) => {
   const { user } = useAuth();
   const { socket } = useSocket();
   const { error, success } = useToast();
@@ -35,31 +42,47 @@ export const TextChannelRoom: React.FC<TextChannelRoomProps> = ({ channel }) => 
   const [mediaType, setMediaType] = useState<'image' | 'video' | 'gif' | ''>('');
   const [isMediaModalOpen, setIsMediaModalOpen] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [selectedUserForProfile, setSelectedUserForProfile] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchMessages = async () => {
+  // Sincroniza menções
+  useEffect(() => {
+    if (mentionInput) {
+      setInputText((prev) => `${prev ? prev + ' ' : ''}@${mentionInput} `);
+      onClearMention?.();
+    }
+  }, [mentionInput]);
+
+  // Busca mensagens em tempo real (com polling a cada 1.2s para atualização instantânea)
+  const fetchMessages = async (showLoading = false) => {
     try {
-      setIsLoading(true);
+      if (showLoading) setIsLoading(true);
       const res = await api.getMessages(channel.id);
-      setMessages(res.messages);
+      setMessages((prev) => {
+        // Atualiza somente se houver mudanças para evitar re-renders desnecessários
+        if (JSON.stringify(prev) === JSON.stringify(res.messages)) return prev;
+        return res.messages;
+      });
     } catch (err: any) {
       console.warn('[MSG_FETCH_ERR]', err);
     } finally {
-      setIsLoading(false);
+      if (showLoading) setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchMessages();
+    fetchMessages(true);
+    const interval = setInterval(() => fetchMessages(false), 1200);
+    return () => clearInterval(interval);
   }, [channel.id]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages.length]);
 
   // Escuta novas mensagens via Socket.IO
   useEffect(() => {
@@ -182,11 +205,11 @@ export const TextChannelRoom: React.FC<TextChannelRoomProps> = ({ channel }) => 
 
         {isLoading ? (
           <div className="p-4 text-center text-xs text-slate-500 animate-pulse">
-            Carregando histórico de mensagens...
+            Carregando mensagens em tempo real...
           </div>
         ) : messages.length === 0 ? (
           <div className="p-8 text-center text-xs text-slate-500">
-            Nenhuma mensagem ainda. Seja o primeiro a enviar!
+            Nenhuma mensagem ainda. Seja o primeiro a conversar!
           </div>
         ) : (
           messages.map((msg) => {
@@ -196,10 +219,36 @@ export const TextChannelRoom: React.FC<TextChannelRoomProps> = ({ channel }) => 
                 key={msg.id}
                 className="flex items-start gap-3 group hover:bg-background-hover/40 p-2 -mx-2 rounded-xl transition-colors"
               >
-                <Avatar src={msg.avatar} name={msg.username} size="md" />
+                <div
+                  className="cursor-pointer"
+                  onClick={() =>
+                    setSelectedUserForProfile({
+                      id: msg.userId,
+                      username: msg.username,
+                      email: '',
+                      role: msg.role,
+                      avatar: msg.avatar,
+                    })
+                  }
+                  title="Ver perfil de quem enviou"
+                >
+                  <Avatar src={msg.avatar} name={msg.username} size="md" />
+                </div>
+
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs font-bold text-slate-200">
+                    <span
+                      onClick={() =>
+                        setSelectedUserForProfile({
+                          id: msg.userId,
+                          username: msg.username,
+                          email: '',
+                          role: msg.role,
+                          avatar: msg.avatar,
+                        })
+                      }
+                      className="text-xs font-bold text-slate-200 hover:text-brand-300 cursor-pointer transition-colors"
+                    >
                       {msg.username}
                     </span>
                     {msg.role === 'ADMIN' && <Badge variant="admin">Admin</Badge>}
@@ -213,7 +262,7 @@ export const TextChannelRoom: React.FC<TextChannelRoomProps> = ({ channel }) => 
 
                   {/* Conteúdo de Texto */}
                   {msg.content && (
-                    <p className="text-sm text-slate-300 break-words leading-relaxed whitespace-pre-wrap">
+                    <p className="text-sm text-slate-300 break-words leading-relaxed whitespace-pre-wrap select-text">
                       {msg.content}
                     </p>
                   )}
@@ -221,7 +270,7 @@ export const TextChannelRoom: React.FC<TextChannelRoomProps> = ({ channel }) => 
                   {/* Mídia Anexada (Imagem ou Vídeo) */}
                   {msg.mediaUrl && (
                     <div className="mt-2.5 max-w-sm sm:max-w-md rounded-xl overflow-hidden border border-background-border shadow-md">
-                      {msg.mediaType === 'video' ? (
+                      {msg.mediaType === 'video' || msg.mediaUrl.includes('.mp4') || msg.mediaUrl.includes('.webm') ? (
                         <video
                           src={msg.mediaUrl}
                           controls
@@ -291,7 +340,6 @@ export const TextChannelRoom: React.FC<TextChannelRoomProps> = ({ channel }) => 
       {/* Barra de Entrada de Mensagem */}
       <div className="p-4 bg-background-card/80 border-t border-background-border/80 flex-shrink-0">
         <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-          {/* Botão de Anexo */}
           <input
             type="file"
             ref={fileInputRef}
@@ -336,7 +384,7 @@ export const TextChannelRoom: React.FC<TextChannelRoomProps> = ({ channel }) => 
         </form>
       </div>
 
-      {/* Modal para inserir Link de Imagem / Vídeo */}
+      {/* Modal para inserir Link */}
       {isMediaModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
           <div className="w-full max-w-md bg-background-card border border-background-border rounded-2xl p-6 shadow-2xl space-y-4">
@@ -390,7 +438,7 @@ export const TextChannelRoom: React.FC<TextChannelRoomProps> = ({ channel }) => 
         </div>
       )}
 
-      {/* Lightbox para Visualizar Imagem em Tela Cheia */}
+      {/* Lightbox para Visualizar Imagem */}
       {lightboxUrl && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md cursor-pointer animate-fade-in"
@@ -403,6 +451,14 @@ export const TextChannelRoom: React.FC<TextChannelRoomProps> = ({ channel }) => 
           />
         </div>
       )}
+
+      {/* Modal de Pré-visualização de Perfil de quem enviou mensagem */}
+      <UserProfilePreviewModal
+        user={selectedUserForProfile}
+        isOpen={!!selectedUserForProfile}
+        onClose={() => setSelectedUserForProfile(null)}
+        onMention={(u) => setInputText((prev) => `${prev ? prev + ' ' : ''}@${u} `)}
+      />
     </div>
   );
 };

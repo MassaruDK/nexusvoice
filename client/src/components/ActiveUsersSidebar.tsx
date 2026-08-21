@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Shield, Circle, Volume2 } from 'lucide-react';
+import { Users, Shield, Circle, Volume2, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.js';
 import { useSocket } from '../context/SocketContext.js';
 import { useVoice } from '../context/VoiceContext.js';
@@ -7,18 +7,27 @@ import { api } from '../services/api.js';
 import { User } from '../types/index.js';
 import { Avatar } from '../features/ui/Avatar.js';
 import { Badge } from '../features/ui/Badge.js';
+import { UserProfilePreviewModal } from '../features/profile/UserProfilePreviewModal.js';
+import { ProfileSettingsModal } from '../features/profile/ProfileSettingsModal.js';
 
 interface ActiveUsersSidebarProps {
   isOpen: boolean;
   onClose: () => void;
+  onMentionUser?: (username: string) => void;
 }
 
-export const ActiveUsersSidebar: React.FC<ActiveUsersSidebarProps> = ({ isOpen, onClose }) => {
+export const ActiveUsersSidebar: React.FC<ActiveUsersSidebarProps> = ({
+  isOpen,
+  onClose,
+  onMentionUser,
+}) => {
   const { user: currentUser } = useAuth();
-  const { socket, globalPresence } = useSocket();
+  const { globalPresence } = useSocket();
   const { currentChannel: currentVoiceChannel, speakingUsers } = useVoice();
 
   const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchUsers = async () => {
@@ -36,14 +45,10 @@ export const ActiveUsersSidebar: React.FC<ActiveUsersSidebarProps> = ({ isOpen, 
 
   useEffect(() => {
     fetchUsers();
-    const interval = setInterval(fetchUsers, 5000);
+    // Atualização contínua a cada 2.5 segundos para garantir sincronia em tempo real
+    const interval = setInterval(fetchUsers, 2500);
     return () => clearInterval(interval);
   }, []);
-
-  // Atualiza imediatamente quando a presença de voz muda
-  useEffect(() => {
-    fetchUsers();
-  }, [globalPresence]);
 
   // Mapeia onde cada usuário está conectado
   const userVoiceMap = new Map<string, string>();
@@ -96,7 +101,9 @@ export const ActiveUsersSidebar: React.FC<ActiveUsersSidebarProps> = ({ isOpen, 
               return (
                 <div
                   key={member.id}
-                  className="flex items-center justify-between p-2 rounded-xl hover:bg-background-surface/60 transition-colors group"
+                  onClick={() => setSelectedUser(member)}
+                  className="flex items-center justify-between p-2 rounded-xl hover:bg-background-surface cursor-pointer transition-colors group select-none"
+                  title="Clique para ver o perfil completo"
                 >
                   <div className="flex items-center gap-2.5 min-w-0 flex-1">
                     <Avatar
@@ -108,7 +115,9 @@ export const ActiveUsersSidebar: React.FC<ActiveUsersSidebarProps> = ({ isOpen, 
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
-                        <span className={`text-xs font-semibold truncate ${isMe ? 'text-brand-300' : 'text-slate-200'}`}>
+                        <span className={`text-xs font-semibold truncate group-hover:text-brand-300 transition-colors ${
+                          isMe ? 'text-brand-300' : 'text-slate-200'
+                        }`}>
                           {member.username}
                         </span>
                         {member.role === 'ADMIN' && <Badge variant="admin">Admin</Badge>}
@@ -131,6 +140,25 @@ export const ActiveUsersSidebar: React.FC<ActiveUsersSidebarProps> = ({ isOpen, 
           )}
         </div>
       </aside>
+
+      {/* Modal de Pré-visualização do Perfil */}
+      <UserProfilePreviewModal
+        user={selectedUser}
+        isOpen={!!selectedUser}
+        onClose={() => setSelectedUser(null)}
+        isInVoice={selectedUser ? (userVoiceMap.has(selectedUser.id) || (selectedUser.id === currentUser?.id && !!currentVoiceChannel)) : false}
+        onOpenEdit={() => setIsEditProfileOpen(true)}
+        onMention={onMentionUser}
+      />
+
+      {/* Modal de Edição de Perfil */}
+      <ProfileSettingsModal
+        isOpen={isEditProfileOpen}
+        onClose={() => {
+          setIsEditProfileOpen(false);
+          fetchUsers();
+        }}
+      />
     </>
   );
 };

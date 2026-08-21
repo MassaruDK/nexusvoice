@@ -175,6 +175,17 @@ app.patch('/api/auth/profile', requireAuth, async (req: Request, res: Response) 
     );
 
     const updatedUser = result.rows[0];
+
+    // Atualiza o avatar e username em todas as mensagens antigas no chat
+    try {
+      await pool.query(
+        'UPDATE messages SET avatar = COALESCE($1, avatar), username = COALESCE($2, username) WHERE user_id = $3',
+        [avatar ? avatar.trim() : null, username ? username.trim() : null, user.id]
+      );
+    } catch (msgErr) {
+      console.warn('[CASCADE_MSG_WARN]', msgErr);
+    }
+
     const token = jwt.sign(updatedUser, JWT_SECRET, { expiresIn: '7d' });
 
     res.cookie(COOKIE_NAME, token, { httpOnly: true, secure: true, sameSite: 'none', maxAge: 7 * 24 * 60 * 60 * 1000 });

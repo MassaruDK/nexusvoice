@@ -17,9 +17,10 @@ export const Layout: React.FC = () => {
   const [isUsersSidebarOpen, setIsUsersSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // Canal de texto selecionado (inicia imediatamente no primeiro canal de texto)
+  // Canal de texto selecionado
   const [selectedTextChannel, setSelectedTextChannel] = useState<VoiceChannel | null>(null);
   const [viewMode, setViewMode] = useState<'TEXT' | 'VOICE'>('TEXT');
+  const [mentionUser, setMentionUser] = useState<string | null>(null);
 
   useEffect(() => {
     const initDefaultChannel = async () => {
@@ -59,7 +60,7 @@ export const Layout: React.FC = () => {
 
         {/* Área Central Principal */}
         <main className="flex-1 flex flex-col overflow-hidden relative">
-          {/* Seletor rápido de visualização quando em chamada de voz */}
+          {/* Seletor rápido quando em chamada de voz */}
           {currentVoiceChannel && (
             <div className="absolute top-3 right-4 z-30 flex items-center gap-1.5 p-1 bg-background-card/90 backdrop-blur-md border border-background-border rounded-xl shadow-lg">
               {selectedTextChannel && (
@@ -94,16 +95,24 @@ export const Layout: React.FC = () => {
           {viewMode === 'VOICE' && currentVoiceChannel ? (
             <VoiceRoom onOpenSettings={() => setIsSettingsOpen(true)} />
           ) : selectedTextChannel ? (
-            <TextChannelRoom channel={selectedTextChannel} />
+            <TextChannelRoom
+              channel={selectedTextChannel}
+              mentionInput={mentionUser}
+              onClearMention={() => setMentionUser(null)}
+            />
           ) : (
             <VoiceRoom onOpenSettings={() => setIsSettingsOpen(true)} />
           )}
         </main>
 
-        {/* Sidebar Direita */}
+        {/* Sidebar Direita de Membros */}
         <ActiveUsersSidebar
           isOpen={isUsersSidebarOpen}
           onClose={() => setIsUsersSidebarOpen(false)}
+          onMentionUser={(username) => {
+            setMentionUser(username);
+            setViewMode('TEXT');
+          }}
         />
       </div>
 
