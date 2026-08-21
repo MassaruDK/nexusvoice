@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Volume2, Users, Wifi, MessageSquare } from 'lucide-react';
+import { Volume2, Users, Wifi, MessageSquare, Monitor } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.js';
 import { useVoice } from '../../context/VoiceContext.js';
 import { ParticipantCard } from './ParticipantCard.js';
@@ -66,7 +66,8 @@ export const VoiceRoom: React.FC<VoiceRoomProps> = ({ onOpenSettings }) => {
     ...participants.filter((p) => p.userId !== user.id),
   ];
 
-  let screenSharer = allParticipants.find((p) => p.isScreenSharing);
+  // Encontra quem está transmitindo tela (local ou remoto)
+  const screenSharer = allParticipants.find((p) => p.isScreenSharing);
   let activeScreenStream: MediaStream | null = null;
 
   if (screenSharer) {
@@ -108,7 +109,13 @@ export const VoiceRoom: React.FC<VoiceRoomProps> = ({ onOpenSettings }) => {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Botão para Abrir Chat de Texto */}
+          {screenSharer && (
+            <span className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-accent-cyan/15 border border-accent-cyan/30 text-accent-cyan text-xs font-semibold animate-pulse">
+              <Monitor className="w-3.5 h-3.5" />
+              <span>Transmissão: {screenSharer.username}</span>
+            </span>
+          )}
+
           <button
             onClick={() => setIsChatOpen((prev) => !prev)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
@@ -139,10 +146,11 @@ export const VoiceRoom: React.FC<VoiceRoomProps> = ({ onOpenSettings }) => {
         {/* Área Principal de Chamada */}
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto p-4 md:p-6 flex flex-col gap-4">
-            {activeScreenStream && screenSharer && (
+            {/* Tela Compartilhada em Destaque */}
+            {screenSharer && (
               <div className="w-full flex-shrink-0">
                 <ScreenShareView
-                  stream={activeScreenStream}
+                  stream={activeScreenStream || new MediaStream()}
                   sharer={screenSharer}
                   isSelf={screenSharer.userId === user.id}
                   onClose={() => setPinnedScreenUserId(null)}
@@ -150,6 +158,7 @@ export const VoiceRoom: React.FC<VoiceRoomProps> = ({ onOpenSettings }) => {
               </div>
             )}
 
+            {/* Grid de Participantes */}
             <div className={`grid ${gridColsClass} gap-3 w-full flex-1 auto-rows-fr`}>
               {allParticipants.map((p) => {
                 const isSelf = p.userId === user.id;

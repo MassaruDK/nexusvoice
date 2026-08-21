@@ -56,6 +56,10 @@ export class PeerConnectionManager {
     }
   }
 
+  public getConnectedSocketIds(): string[] {
+    return Array.from(this.peers.keys());
+  }
+
   private createPeerConnection(remoteSocketId: string, userId: string): PeerConnectionWrapper {
     if (this.peers.has(remoteSocketId)) {
       return this.peers.get(remoteSocketId)!;
@@ -64,12 +68,6 @@ export class PeerConnectionManager {
     const pc = new RTCPeerConnection({
       iceServers: DEFAULT_ICE_SERVERS
     });
-
-    // Pré-reserva transceivers bidirecionais de áudio e vídeo
-    try {
-      pc.addTransceiver('audio', { direction: 'sendrecv' });
-      pc.addTransceiver('video', { direction: 'sendrecv' });
-    } catch (_) {}
 
     const remoteStream = new MediaStream();
 
@@ -80,7 +78,7 @@ export class PeerConnectionManager {
     };
 
     pc.ontrack = (event) => {
-      console.log(`[WEBRTC] Faixa de mídia recebida de ${remoteSocketId} (${event.track.kind})`);
+      console.log(`[WEBRTC] Track recebida de ${remoteSocketId} (${event.track.kind})`);
       
       if (!remoteStream.getTracks().some(t => t.id === event.track.id)) {
         remoteStream.addTrack(event.track);
@@ -93,6 +91,7 @@ export class PeerConnectionManager {
       this.onTrackAdded(remoteSocketId, remoteStream);
 
       event.track.onended = () => {
+        console.log(`[WEBRTC] Track finalizada de ${remoteSocketId} (${event.track.kind})`);
         remoteStream.removeTrack(event.track);
         if (remoteStream.getTracks().length === 0) {
           this.onTrackRemoved(remoteSocketId);
@@ -144,17 +143,16 @@ export class PeerConnectionManager {
       const pc = wrapper.peerConnection;
       const senders = pc.getSenders();
 
-      // Atualiza Áudio
+      // Áudio
       const currentAudioTrack = this.localAudioStream?.getAudioTracks()[0] || null;
       const audioSender = senders.find(s => s.track?.kind === 'audio');
-
       if (audioSender) {
         audioSender.replaceTrack(currentAudioTrack);
       } else if (currentAudioTrack && this.localAudioStream) {
         try { pc.addTrack(currentAudioTrack, this.localAudioStream); } catch (_) {}
       }
 
-      // Atualiza Vídeo / Tela
+      // Vídeo / Tela
       const currentVideoTrack = (this.localScreenStream?.getVideoTracks()[0]) || (this.localVideoStream?.getVideoTracks()[0]) || null;
       const currentVideoStream = this.localScreenStream || this.localVideoStream;
       const videoSender = senders.find(s => s.track?.kind === 'video');
@@ -169,6 +167,10 @@ export class PeerConnectionManager {
 
   public async createOffer(remoteSocketId: string, userId: string): Promise<RTCSessionDescriptionInit> {
     const wrapper = this.createPeerConnection(remoteSocketId, userId);
+    
+    // Atualiza tracks antes de gerar offer
+    this.addLocalTracksToPc(wrapper.peerConnection);
+
     const offer = await wrapper.peerConnection.createOffer({
       offerToReceiveAudio: true,
       offerToReceiveVideo: true
@@ -179,8 +181,9 @@ export class PeerConnectionManager {
 
   public async handleOffer(remoteSocketId: string, userId: string, offer: RTCSessionDescriptionInit): Promise<RTCSessionDescriptionInit> {
     const wrapper = this.createPeerConnection(remoteSocketId, userId);
+    this.addLocalTracksToPc(wrapper.peerConnection);
+    
     await wrapper.peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-
     const answer = await wrapper.peerConnection.createAnswer();
     await wrapper.peerConnection.setLocalDescription(answer);
     return answer;

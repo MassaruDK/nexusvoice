@@ -19,13 +19,13 @@ interface VoiceContextType {
   hasVideo: boolean;
   isScreenSharing: boolean;
   isLocalSpeaking: boolean;
-  speakingUsers: Set<string>; // Set de userIds falando
+  speakingUsers: Set<string>;
   
   // Streams
   localAudioStream: MediaStream | null;
   localVideoStream: MediaStream | null;
   localScreenStream: MediaStream | null;
-  remoteStreams: Map<string, MediaStream>; // socketId -> MediaStream
+  remoteStreams: Map<string, MediaStream>;
   
   // Ações de Voz
   joinChannel: (channel: VoiceChannel) => Promise<void>;
@@ -52,14 +52,14 @@ const VoiceContext = createContext<VoiceContextType | undefined>(undefined);
 
 export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
-  const { socket, isConnected } = useSocket();
+  const { socket } = useSocket();
   const { error, info, success } = useToast();
 
   const [currentChannel, setCurrentChannel] = useState<VoiceChannel | null>(null);
   const [participants, setParticipants] = useState<ParticipantState[]>([]);
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
 
-  // Estados locais de controle de áudio/vídeo
+  // Estados de mídia
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [isDeafened, setIsDeafened] = useState<boolean>(false);
   const [hasVideo, setHasVideo] = useState<boolean>(false);
@@ -81,9 +81,26 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [selectedAudioOutput, setSelectedAudioOutput] = useState<string>(() => localStorage.getItem('voice_audio_out') || '');
   const [selectedVideoInput, setSelectedVideoInput] = useState<string>(() => localStorage.getItem('voice_video_in') || '');
 
-  // Referências para WebRTC e VAD
   const peerManagerRef = useRef<PeerConnectionManager | null>(null);
   const vadRef = useRef<VoiceActivityDetector | null>(null);
+
+  // Helper para renegociar WebRTC com todos os outros participantes da sala
+  const renegotiateWithPeers = useCallback(async () => {
+    if (!socket?.connected || !peerManagerRef.current) return;
+    for (const p of participants) {
+      if (p.socketId !== socket.id) {
+        try {
+          console.log(`[VOICE] Renegociando WebRTC com: ${p.username} (${p.socketId})`);
+          const offer = await peerManagerRef.current.createOffer(p.socketId, p.userId);
+          if (offer) {
+            socket.emit('webrtc:offer', { targetSocketId: p.socketId, offer });
+          }
+        } catch (err) {
+          console.warn('[VOICE] Erro ao renegociar com peer:', p.username, err);
+        }
+      }
+    }
+  }, [socket, participants]);
 
   // Carregar lista de dispositivos
   const refreshDevices = useCallback(async () => {
@@ -124,7 +141,7 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
       },
       onNegotiationNeeded: (targetSocketId) => {
-        // Negociação automática tratada nas chamadas explícitas
+        // Handled directly on track changes
       }
     });
 
@@ -164,12 +181,10 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     if (!socket) return;
 
-    // 1. Confirmação de entrada no canal
     const onVoiceJoined = async (data: { channelId: string; participants: ParticipantState[]; selfParticipant: ParticipantState }) => {
       setIsConnecting(false);
       setParticipants(data.participants);
 
-      // Para cada participante existente no canal, cria uma oferta WebRTC
       for (const peer of data.participants) {
         if (peer.socketId !== socket.id) {
           try {
@@ -185,7 +200,6 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     };
 
-    // 2. Novo usuário entrou no canal
     const onUserJoined = (data: { participant: ParticipantState }) => {
       setParticipants(prev => {
         if (prev.some(p => p.userId === data.participant.userId)) {
@@ -196,14 +210,11 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       info(`${data.participant.username} entrou no canal`);
     };
 
-    // 3. Usuário saiu do canal
     const onUserLeft = (data: { socketId: string; userId: string; channelId: string }) => {
       peerManagerRef.current?.removePeer(data.socketId);
       setParticipants(prev => {
         const left = prev.find(p => p.userId === data.userId);
-        if (left) {
-          info(`${left.username} saiu do canal`);
-        }
+        if (left) info(`${left.username} saiu do canal`);
         return prev.filter(p => p.userId !== data.userId);
       });
       setSpeakingUsers(prev => {
@@ -213,7 +224,6 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       });
     };
 
-    // 4. WebRTC Offer recebida
     const onWebRTCOffer = async (data: { fromSocketId: string; fromUserId: string; username: string; offer: any }) => {
       try {
         console.log(`[VOICE] Respondendo a WebRTC Offer de ${data.username} (${data.fromSocketId})`);
@@ -226,7 +236,6 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     };
 
-    // 5. WebRTC Answer recebida
     const onWebRTCAnswer = async (data: { fromSocketId: string; answer: any }) => {
       try {
         await peerManagerRef.current?.handleAnswer(data.fromSocketId, data.answer);
@@ -235,12 +244,10 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     };
 
-    // 6. ICE Candidate recebido
     const onWebRTCIce = async (data: { fromSocketId: string; candidate: any }) => {
       await peerManagerRef.current?.handleIceCandidate(data.fromSocketId, data.candidate);
     };
 
-    // 7. Atualização de mídia de outro membro
     const onMediaStateChanged = (data: { socketId: string; userId: string; mediaState: Partial<ParticipantState> }) => {
       setParticipants(prev => prev.map(p => {
         if (p.userId === data.userId) {
@@ -250,7 +257,6 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }));
     };
 
-    // 8. Evento de fala de outro membro
     const onMediaSpeaking = (data: { socketId: string; userId: string; isSpeaking: boolean }) => {
       setSpeakingUsers(prev => {
         const next = new Set(prev);
@@ -267,7 +273,6 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }));
     };
 
-    // 9. Erro de canal
     const onVoiceError = (data: { message: string }) => {
       error(data.message);
       leaveChannel();
@@ -296,18 +301,14 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
   }, [socket, info, error]);
 
-  // Ação: Entrar no canal de voz
   const joinChannel = async (channel: VoiceChannel) => {
     if (!socket?.connected) {
       error('Sem conexão com o servidor em tempo real');
       return;
     }
 
-    if (currentChannel?.id === channel.id) {
-      return;
-    }
+    if (currentChannel?.id === channel.id) return;
 
-    // Se já estiver em outro canal, limpa estado antes
     if (currentChannel) {
       leaveChannel();
     }
@@ -316,7 +317,6 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setCurrentChannel(channel);
 
     try {
-      // 1. Solicita acesso ao microfone
       let stream: MediaStream | null = null;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -324,8 +324,8 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           video: false
         });
       } catch (micErr: any) {
-        console.warn('[VOICE] Permissão de microfone negada ou indisponível:', micErr);
-        info('Entrando no canal em modo apenas ouvinte (microfone não detectado ou negado)');
+        console.warn('[VOICE] Microfone não detectado ou negado:', micErr);
+        info('Entrando no canal em modo apenas ouvinte');
       }
 
       if (stream) {
@@ -337,7 +337,6 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setIsMuted(true);
       }
 
-      // 2. Notifica servidor para entrar no canal
       socket.emit('voice:join', {
         channelId: channel.id,
         mediaState: {
@@ -357,13 +356,11 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  // Ação: Sair do canal de voz
   const leaveChannel = useCallback(() => {
     if (socket?.connected && currentChannel) {
       socket.emit('voice:leave');
     }
 
-    // Parar todas as tracks locais
     localAudioStream?.getTracks().forEach(t => t.stop());
     localVideoStream?.getTracks().forEach(t => t.stop());
     localScreenStream?.getTracks().forEach(t => t.stop());
@@ -373,11 +370,9 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setLocalScreenStream(null);
     setRemoteStreams(new Map());
 
-    // Parar VAD e WebRTC
     vadRef.current?.stop();
     peerManagerRef.current?.closeAll();
 
-    // Resetar estados
     setCurrentChannel(null);
     setParticipants([]);
     setIsConnecting(false);
@@ -389,7 +384,6 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setSpeakingUsers(new Set());
   }, [socket, currentChannel, localAudioStream, localVideoStream, localScreenStream]);
 
-  // Ação: Mutar / Desmutar Microfone
   const toggleMic = () => {
     if (!localAudioStream) {
       info('Microfone não disponível');
@@ -422,12 +416,10 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  // Ação: Ensurdecer / Desensurdecer
   const toggleDeafen = () => {
     const nextDeafened = !isDeafened;
     setIsDeafened(nextDeafened);
 
-    // Ensurdecer também muta o microfone
     if (nextDeafened) {
       if (localAudioStream) {
         localAudioStream.getAudioTracks().forEach(track => {
@@ -458,10 +450,8 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  // Ação: Ligar / Desligar Câmera
   const toggleCamera = async () => {
     if (hasVideo) {
-      // Desligar Câmera
       localVideoStream?.getTracks().forEach(t => t.stop());
       setLocalVideoStream(null);
       setHasVideo(false);
@@ -470,8 +460,8 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (socket?.connected && currentChannel) {
         socket.emit('media:state_changed', { hasVideo: false });
       }
+      renegotiateWithPeers();
     } else {
-      // Ligar Câmera
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: selectedVideoInput ? { deviceId: { exact: selectedVideoInput } } : true,
@@ -485,6 +475,7 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (socket?.connected && currentChannel) {
           socket.emit('media:state_changed', { hasVideo: true });
         }
+        renegotiateWithPeers();
       } catch (err: any) {
         console.warn('[CAMERA] Não foi possível acessar a câmera:', err);
         error('Acesso à câmera foi negado ou não encontrado');
@@ -492,10 +483,8 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  // Ação: Compartilhar / Parar Tela
   const toggleScreenShare = async () => {
     if (isScreenSharing) {
-      // Parar Compartilhamento
       localScreenStream?.getTracks().forEach(t => t.stop());
       setLocalScreenStream(null);
       setIsScreenSharing(false);
@@ -504,9 +493,9 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (socket?.connected && currentChannel) {
         socket.emit('media:state_changed', { isScreenSharing: false });
       }
+      renegotiateWithPeers();
       info('Compartilhamento de tela encerrado');
     } else {
-      // Iniciar Compartilhamento
       try {
         if (!navigator.mediaDevices?.getDisplayMedia) {
           error('Seu navegador não suporta compartilhamento de tela');
@@ -520,7 +509,6 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         const screenTrack = stream.getVideoTracks()[0];
         
-        // Trata cancelamento pelo botão padrão do navegador
         screenTrack.onended = () => {
           localScreenStream?.getTracks().forEach(t => t.stop());
           setLocalScreenStream(null);
@@ -530,6 +518,7 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           if (socket?.connected && currentChannel) {
             socket.emit('media:state_changed', { isScreenSharing: false });
           }
+          renegotiateWithPeers();
           info('Compartilhamento de tela finalizado');
         };
 
@@ -540,6 +529,7 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (socket?.connected && currentChannel) {
           socket.emit('media:state_changed', { isScreenSharing: true });
         }
+        renegotiateWithPeers();
         success('Compartilhamento de tela iniciado');
       } catch (err: any) {
         if (err.name !== 'NotAllowedError') {
@@ -550,7 +540,6 @@ export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  // Troca de Dispositivos
   const changeAudioInput = async (deviceId: string) => {
     setSelectedAudioInput(deviceId);
     localStorage.setItem('voice_audio_in', deviceId);
