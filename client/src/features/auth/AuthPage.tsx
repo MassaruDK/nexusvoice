@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Radio, ShieldCheck, Server } from 'lucide-react';
+import { Radio, Server } from 'lucide-react';
 import { LoginForm } from './LoginForm.js';
 import { RegisterForm } from './RegisterForm.js';
 import { ServerConfigModal } from '../settings/ServerConfigModal.js';
@@ -56,20 +56,6 @@ export const AuthPage: React.FC = () => {
           ) : (
             <RegisterForm onToggleMode={() => setIsLogin(true)} />
           )}
-        </div>
-
-        {/* Dicas de Acesso Rápido */}
-        <div className="w-full mt-6 pt-5 border-t border-background-border/60 text-center">
-          <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400 mb-1">
-            <ShieldCheck className="w-3.5 h-3.5 text-brand-400" />
-            <span>Credenciais padrão para testes:</span>
-          </div>
-          <p className="text-[11px] text-slate-300 font-mono">
-            Admin: <span className="text-brand-300">admin@localhost</span> / <span className="text-brand-300">change-me</span>
-          </p>
-          <p className="text-[11px] text-slate-300 font-mono mt-0.5">
-            Amigo: <span className="text-accent-cyan">amigo@nexusvoice.com</span> / <span className="text-accent-cyan">nexus123456</span>
-          </p>
         </div>
       </div>
 
