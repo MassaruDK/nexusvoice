@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { VoiceChannel } from '../types/index.js';
 import { Header } from './Header.js';
 import { Sidebar } from './Sidebar.js';
@@ -7,6 +7,7 @@ import { VoiceRoom } from '../features/voice/VoiceRoom.js';
 import { TextChannelRoom } from '../features/chat/TextChannelRoom.js';
 import { DeviceSettingsModal } from '../features/settings/DeviceSettingsModal.js';
 import { useVoice } from '../context/VoiceContext.js';
+import { api } from '../services/api.js';
 import { Hash, Volume2 } from 'lucide-react';
 
 export const Layout: React.FC = () => {
@@ -16,9 +17,24 @@ export const Layout: React.FC = () => {
   const [isUsersSidebarOpen, setIsUsersSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // Canal de texto selecionado
+  // Canal de texto selecionado (inicia imediatamente no primeiro canal de texto)
   const [selectedTextChannel, setSelectedTextChannel] = useState<VoiceChannel | null>(null);
   const [viewMode, setViewMode] = useState<'TEXT' | 'VOICE'>('TEXT');
+
+  useEffect(() => {
+    const initDefaultChannel = async () => {
+      try {
+        const res = await api.getChannels();
+        const textChannels = res.channels.filter((c) => c.type === 'TEXT');
+        if (textChannels.length > 0) {
+          setSelectedTextChannel((prev) => prev || textChannels[0]);
+        }
+      } catch (err) {
+        console.warn('[LAYOUT] Erro ao carregar canais iniciais:', err);
+      }
+    };
+    initDefaultChannel();
+  }, []);
 
   return (
     <div className="flex flex-col h-screen w-screen bg-background-darkest overflow-hidden">
