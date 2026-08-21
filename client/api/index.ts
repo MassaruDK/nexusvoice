@@ -189,6 +189,15 @@ app.post('/api/auth/logout', (req: Request, res: Response) => {
   res.json({ success: true });
 });
 
+app.get('/api/users', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await pool.query('SELECT id, username, email, role, avatar, bio, created_at as "createdAt" FROM users ORDER BY role ASC, username ASC');
+    res.json({ users: result.rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/channels', requireAuth, async (req: Request, res: Response) => {
   try {
     const result = await pool.query('SELECT id, name, description, position, COALESCE(type, \'VOICE\') as type, created_at as "createdAt", updated_at as "updatedAt" FROM voice_channels ORDER BY position ASC, created_at ASC');

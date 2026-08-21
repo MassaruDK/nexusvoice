@@ -120,6 +120,10 @@ class ApiService {
     }
   }
 
+  async getUsers(): Promise<{ users: User[] }> {
+    return this.request<{ users: User[] }>('/users');
+  }
+
   async getChannels(): Promise<{ channels: VoiceChannel[] }> {
     return this.request<{ channels: VoiceChannel[] }>('/channels');
   }
