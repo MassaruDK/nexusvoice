@@ -34,3 +34,7 @@ export const SCHEMA_SQL = `
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   );
 `;
+
+export async function initSchema(db: any): Promise<void> {
+  await db.exec(SCHEMA_SQL);
+}

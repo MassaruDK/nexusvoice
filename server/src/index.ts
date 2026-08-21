@@ -1,48 +1,57 @@
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
-import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { config } from './config.js';
+import { db } from './db/index.js';
+import { initSocketServer } from './socket/index.js';
 import authRoutes from './routes/auth.js';
 import channelRoutes from './routes/channels.js';
 import messageRoutes from './routes/messages.js';
 import { errorHandler } from './middlewares/errorHandler.js';
-import { initSocketIO } from './socket/index.js';
-import './db/index.js';
+import { requireAuth } from './middlewares/auth.js';
+import { AuthService } from './services/authService.js';
 
 const app = express();
 const server = http.createServer(app);
 
-app.use(helmet({
-  contentSecurityPolicy: false,
-  crossOriginEmbedderPolicy: false
-}));
+// CORS
+const allowedOrigins = [
+  config.CLIENT_URL,
+  'https://nexusvoice-hazel.vercel.app',
+  'http://localhost:5173',
+  'http://localhost:3000',
+].filter(Boolean);
 
 app.use(cors({
-  origin: (origin, callback) => callback(null, true),
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app') || origin.endsWith('.loca.lt')) {
+      callback(null, true);
+    } else {
+      callback(null, true);
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'Bypass-Tunnel-Reminder']
 }));
 
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+app.use(express.json({ limit: '15mb' }));
+app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 app.use(cookieParser());
 
-app.use((req, res, next) => {
-  const start = Date.now();
-  res.on('finish', () => {
-    const duration = Date.now() - start;
-    if (!req.path.startsWith('/socket.io')) {
-      console.log(`[HTTP] ${req.method} ${req.path} ${res.statusCode} - ${duration}ms`);
-    }
-  });
-  next();
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', time: new Date().toISOString() });
+});
+
+// Rotas
 app.use('/api/auth', authRoutes);
-app.use('/api/users', requireAuth, async (req: express.Request, res: express.Response) => {
+app.use('/api/users', requireAuth, async (req, res) => {
   try {
     const users = await AuthService.getAllUsers();
     res.json({ users });
@@ -53,18 +62,25 @@ app.use('/api/users', requireAuth, async (req: express.Request, res: express.Res
 app.use('/api/channels', channelRoutes);
 app.use('/api/messages', messageRoutes);
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString(), env: config.NODE_ENV });
-});
-
+// Error Handler
 app.use(errorHandler);
 
-initSocketIO(server);
+// Inicializa WebSocket
+initSocketServer(server);
 
-server.listen(config.PORT, () => {
-  console.log('====================================================');
-  console.log(`🚀 Servidor WebRTC Voice Chat rodando na porta: ${config.PORT}`);
-  console.log(`📡 CORS configurado para: ${config.CLIENT_URL}`);
-  console.log(`🔐 Admin padrão: ${config.ADMIN_EMAIL}`);
-  console.log('====================================================');
-});
+// Inicializa Banco e Servidor
+async function bootstrap() {
+  try {
+    await db.init();
+    console.log('[DB] Conectado e schema inicializado');
+
+    server.listen(config.PORT, () => {
+      console.log(`[SERVER] Nexus Voice Server rodando na porta ${config.PORT}`);
+    });
+  } catch (err) {
+    console.error('[SERVER] Erro fatal ao inicializar:', err);
+    process.exit(1);
+  }
+}
+
+bootstrap();

@@ -12,6 +12,17 @@ export interface User {
   updated_at: string;
 }
 
+export type SafeUser = Omit<User, 'password_hash'>;
+
+export interface JWTPayload {
+  id: string;
+  username: string;
+  email: string;
+  role: UserRole;
+  avatar: string;
+  bio?: string;
+}
+
 export interface VoiceChannel {
   id: string;
   name: string;
