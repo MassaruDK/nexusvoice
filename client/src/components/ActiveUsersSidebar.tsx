@@ -15,7 +15,7 @@ interface ActiveUsersSidebarProps {
 
 export const ActiveUsersSidebar: React.FC<ActiveUsersSidebarProps> = ({ isOpen, onClose }) => {
   const { user: currentUser } = useAuth();
-  const { globalPresence } = useSocket();
+  const { socket, globalPresence } = useSocket();
   const { currentChannel: currentVoiceChannel, speakingUsers } = useVoice();
 
   const [allUsers, setAllUsers] = useState<User[]>([]);
@@ -24,9 +24,11 @@ export const ActiveUsersSidebar: React.FC<ActiveUsersSidebarProps> = ({ isOpen, 
   const fetchUsers = async () => {
     try {
       const res = await api.getUsers();
-      setAllUsers(res.users);
-    } catch {
-      // Ignora erro
+      if (res && res.users) {
+        setAllUsers(res.users);
+      }
+    } catch (e) {
+      console.warn('[USERS_ERR]', e);
     } finally {
       setIsLoading(false);
     }
@@ -34,9 +36,14 @@ export const ActiveUsersSidebar: React.FC<ActiveUsersSidebarProps> = ({ isOpen, 
 
   useEffect(() => {
     fetchUsers();
-    const interval = setInterval(fetchUsers, 15000);
+    const interval = setInterval(fetchUsers, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // Atualiza imediatamente quando a presença de voz muda
+  useEffect(() => {
+    fetchUsers();
+  }, [globalPresence]);
 
   // Mapeia onde cada usuário está conectado
   const userVoiceMap = new Map<string, string>();
@@ -106,7 +113,7 @@ export const ActiveUsersSidebar: React.FC<ActiveUsersSidebarProps> = ({ isOpen, 
                         </span>
                         {member.role === 'ADMIN' && <Badge variant="admin">Admin</Badge>}
                       </div>
-                      
+
                       {isInVoice ? (
                         <span className="text-[10px] text-emerald-400 flex items-center gap-1 font-medium truncate">
                           <Volume2 className="w-2.5 h-2.5 flex-shrink-0" /> Em chamada de voz
