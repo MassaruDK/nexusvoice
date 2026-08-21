@@ -3,7 +3,9 @@ import { PeerConnectionWrapper } from './types.js';
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
-  { urls: 'stun:stun2.l.google.com:19302' }
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun3.l.google.com:19302' },
+  { urls: 'stun:stun4.l.google.com:19302' }
 ];
 
 export class PeerConnectionManager {
@@ -47,7 +49,6 @@ export class PeerConnectionManager {
 
   public setDeafened(deafened: boolean): void {
     this.isDeafened = deafened;
-    // Muta todos os áudios remotos
     for (const wrapper of this.peers.values()) {
       wrapper.remoteStream.getAudioTracks().forEach(track => {
         track.enabled = !deafened;
@@ -64,6 +65,12 @@ export class PeerConnectionManager {
       iceServers: DEFAULT_ICE_SERVERS
     });
 
+    // Pré-reserva transceivers bidirecionais de áudio e vídeo
+    try {
+      pc.addTransceiver('audio', { direction: 'sendrecv' });
+      pc.addTransceiver('video', { direction: 'sendrecv' });
+    } catch (_) {}
+
     const remoteStream = new MediaStream();
 
     pc.onicecandidate = (event) => {
@@ -75,7 +82,6 @@ export class PeerConnectionManager {
     pc.ontrack = (event) => {
       console.log(`[WEBRTC] Faixa de mídia recebida de ${remoteSocketId} (${event.track.kind})`);
       
-      // Adiciona faixa ao stream remoto
       if (!remoteStream.getTracks().some(t => t.id === event.track.id)) {
         remoteStream.addTrack(event.track);
       }
@@ -94,14 +100,6 @@ export class PeerConnectionManager {
       };
     };
 
-    pc.oniceconnectionstatechange = () => {
-      console.log(`[WEBRTC] ICE State com ${remoteSocketId}: ${pc.iceConnectionState}`);
-      if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
-        // Conexão perdida
-      }
-    };
-
-    // Adiciona tracks locais atuais
     this.addLocalTracksToPc(pc);
 
     const wrapper: PeerConnectionWrapper = {
@@ -121,21 +119,28 @@ export class PeerConnectionManager {
     // 1. Áudio Local
     if (this.localAudioStream) {
       const audioTrack = this.localAudioStream.getAudioTracks()[0];
-      if (audioTrack && !existingSenders.some(s => s.track?.kind === 'audio')) {
-        pc.addTrack(audioTrack, this.localAudioStream);
+      const audioSender = existingSenders.find(s => s.track?.kind === 'audio');
+      if (audioSender && audioTrack) {
+        audioSender.replaceTrack(audioTrack);
+      } else if (audioTrack && !audioSender) {
+        try { pc.addTrack(audioTrack, this.localAudioStream); } catch (_) {}
       }
     }
 
-    // 2. Vídeo / Tela Local (Tela tem prioridade de exibição de vídeo se ativa)
+    // 2. Vídeo / Tela Local
     const videoTrack = (this.localScreenStream?.getVideoTracks()[0]) || (this.localVideoStream?.getVideoTracks()[0]);
-    if (videoTrack && !existingSenders.some(s => s.track?.kind === 'video')) {
-      const stream = this.localScreenStream || this.localVideoStream!;
-      pc.addTrack(videoTrack, stream);
+    const stream = this.localScreenStream || this.localVideoStream;
+    const videoSender = existingSenders.find(s => s.track?.kind === 'video');
+
+    if (videoSender && videoTrack) {
+      videoSender.replaceTrack(videoTrack);
+    } else if (videoTrack && stream && !videoSender) {
+      try { pc.addTrack(videoTrack, stream); } catch (_) {}
     }
   }
 
   public updateTracksInPeers(): void {
-    for (const [remoteSocketId, wrapper] of this.peers.entries()) {
+    for (const wrapper of this.peers.values()) {
       const pc = wrapper.peerConnection;
       const senders = pc.getSenders();
 
@@ -144,13 +149,9 @@ export class PeerConnectionManager {
       const audioSender = senders.find(s => s.track?.kind === 'audio');
 
       if (audioSender) {
-        if (currentAudioTrack) {
-          audioSender.replaceTrack(currentAudioTrack);
-        } else {
-          try { pc.removeTrack(audioSender); } catch (_) {}
-        }
+        audioSender.replaceTrack(currentAudioTrack);
       } else if (currentAudioTrack && this.localAudioStream) {
-        pc.addTrack(currentAudioTrack, this.localAudioStream);
+        try { pc.addTrack(currentAudioTrack, this.localAudioStream); } catch (_) {}
       }
 
       // Atualiza Vídeo / Tela
@@ -159,18 +160,13 @@ export class PeerConnectionManager {
       const videoSender = senders.find(s => s.track?.kind === 'video');
 
       if (videoSender) {
-        if (currentVideoTrack) {
-          videoSender.replaceTrack(currentVideoTrack);
-        } else {
-          try { pc.removeTrack(videoSender); } catch (_) {}
-        }
+        videoSender.replaceTrack(currentVideoTrack);
       } else if (currentVideoTrack && currentVideoStream) {
-        pc.addTrack(currentVideoTrack, currentVideoStream);
+        try { pc.addTrack(currentVideoTrack, currentVideoStream); } catch (_) {}
       }
     }
   }
 
-  // Cria e envia Offer para um peer
   public async createOffer(remoteSocketId: string, userId: string): Promise<RTCSessionDescriptionInit> {
     const wrapper = this.createPeerConnection(remoteSocketId, userId);
     const offer = await wrapper.peerConnection.createOffer({
@@ -181,7 +177,6 @@ export class PeerConnectionManager {
     return offer;
   }
 
-  // Trata Offer recebida de um peer remoto
   public async handleOffer(remoteSocketId: string, userId: string, offer: RTCSessionDescriptionInit): Promise<RTCSessionDescriptionInit> {
     const wrapper = this.createPeerConnection(remoteSocketId, userId);
     await wrapper.peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
@@ -191,14 +186,12 @@ export class PeerConnectionManager {
     return answer;
   }
 
-  // Trata Answer recebida
   public async handleAnswer(remoteSocketId: string, answer: RTCSessionDescriptionInit): Promise<void> {
     const wrapper = this.peers.get(remoteSocketId);
     if (!wrapper) return;
     await wrapper.peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
   }
 
-  // Trata ICE Candidate
   public async handleIceCandidate(remoteSocketId: string, candidate: RTCIceCandidateInit): Promise<void> {
     const wrapper = this.peers.get(remoteSocketId);
     if (!wrapper) return;

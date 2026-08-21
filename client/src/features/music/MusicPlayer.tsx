@@ -10,8 +10,7 @@ import {
   Plus,
   Radio,
   Tv,
-  ChevronDown,
-  ChevronUp
+  ChevronDown
 } from 'lucide-react';
 import { MusicState } from '../../types/index.js';
 import { useSocket } from '../../context/SocketContext.js';
@@ -42,7 +41,6 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ channelId }) => {
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  // Enviar comando para o iframe do YouTube via postMessage
   const sendYtCommand = (func: string, args: any[] = []) => {
     try {
       if (iframeRef.current && iframeRef.current.contentWindow) {
@@ -51,14 +49,12 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ channelId }) => {
           '*'
         );
       }
-    } catch (err) {
-      console.warn('[YT_PLAYER_MSG_ERR]', err);
-    }
+    } catch (_) {}
   };
 
-  // Sincronizar estado da música com o Socket.IO
+  // Limpa e para a reprodução imediatamente ao sair do canal ou desmontar
   useEffect(() => {
-    if (!socket) return;
+    if (!socket || !channelId) return;
 
     socket.emit('music:request_sync', { channelId });
 
@@ -70,10 +66,10 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ channelId }) => {
 
     return () => {
       socket.off('music:sync', onMusicSync);
+      sendYtCommand('stopVideo');
     };
   }, [socket, channelId]);
 
-  // Atualizar reprodução e volume no player do YouTube quando o estado mudar
   useEffect(() => {
     if (!musicState.currentTrack) return;
 
@@ -84,7 +80,7 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ channelId }) => {
       } else {
         sendYtCommand('pauseVideo');
       }
-    }, 500);
+    }, 400);
 
     return () => clearTimeout(timer);
   }, [musicState.isPlaying, musicState.currentTrack?.youtubeId, volume, isMuted]);
@@ -96,11 +92,8 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ channelId }) => {
       channelId,
       isPlaying: nextState,
     });
-    if (nextState) {
-      sendYtCommand('playVideo');
-    } else {
-      sendYtCommand('pauseVideo');
-    }
+    if (nextState) sendYtCommand('playVideo');
+    else sendYtCommand('pauseVideo');
   };
 
   const handleSkip = () => {
@@ -138,7 +131,6 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ channelId }) => {
   return (
     <>
       <div className="px-4 py-2.5 bg-background-card/95 border-b border-background-border/80 flex items-center justify-between gap-3 text-xs z-20 backdrop-blur-md">
-        {/* Informações da Faixa Atual */}
         <div className="flex items-center gap-3 min-w-0 max-w-xs sm:max-w-md">
           {track ? (
             <div className="relative flex-shrink-0 cursor-pointer" onClick={() => setShowVideo(!showVideo)}>
@@ -165,12 +157,11 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ channelId }) => {
               {track ? track.title : 'Nenhuma música tocando'}
             </p>
             <p className="text-[11px] text-slate-400 truncate">
-              {track ? `Adicionado por ${track.addedBy}` : 'Toque uma música do YouTube para todos ouvirem'}
+              {track ? `Adicionado por ${track.addedBy}` : 'Toque uma música do YouTube para a sala'}
             </p>
           </div>
         </div>
 
-        {/* Controles de Reprodução */}
         <div className="flex items-center gap-2 flex-shrink-0">
           {track && (
             <>
@@ -198,7 +189,6 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ channelId }) => {
                 <Square className="w-4 h-4" />
               </button>
 
-              {/* Botão de Exibir/Ocultar Vídeo Mini */}
               <button
                 onClick={() => setShowVideo(!showVideo)}
                 className={`p-2 rounded-xl border transition-colors ${
@@ -213,7 +203,6 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ channelId }) => {
             </>
           )}
 
-          {/* Slider de Volume */}
           <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-background-surface border border-background-border">
             <button
               onClick={toggleMute}
@@ -240,7 +229,6 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ channelId }) => {
             </span>
           </div>
 
-          {/* Fila de Músicas */}
           {musicState.queue.length > 0 && (
             <button
               onClick={() => setIsQueueOpen((prev) => !prev)}
@@ -254,7 +242,6 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ channelId }) => {
             </button>
           )}
 
-          {/* Botão Adicionar Música */}
           <button
             onClick={() => setIsSearchOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-brand-600/20 hover:bg-brand-600/30 text-brand-300 border border-brand-500/30 font-semibold transition-all shadow-sm"
@@ -265,7 +252,6 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ channelId }) => {
         </div>
       </div>
 
-      {/* Mini Player de Vídeo Flutuante no Canto Inferior Direito */}
       {track && (
         <div
           className={`fixed bottom-20 right-6 z-40 bg-background-card border border-background-border rounded-2xl shadow-2xl overflow-hidden transition-all duration-300 ${
@@ -294,7 +280,6 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ channelId }) => {
         </div>
       )}
 
-      {/* Modal de Busca do YouTube */}
       <YouTubeSearchModal
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}

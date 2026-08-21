@@ -20,7 +20,7 @@ export const ScreenShareView: React.FC<ScreenShareViewProps> = ({
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
-      videoRef.current.play().catch((e) => console.log('[SCREEN] Play auto blocked:', e));
+      videoRef.current.play().catch((e) => console.log('[SCREEN] Autoplay handled:', e));
     }
   }, [stream]);
 
@@ -61,13 +61,13 @@ export const ScreenShareView: React.FC<ScreenShareViewProps> = ({
         </div>
       </div>
 
-      {/* Vídeo da Tela */}
+      {/* Vídeo da Tela - muted={true} garante que o navegador nunca bloqueie frames com tela preta */}
       <div className="flex-1 w-full h-full flex items-center justify-center bg-black">
         <video
           ref={videoRef}
           autoPlay
           playsInline
-          muted={isSelf}
+          muted
           className="w-full h-full object-contain max-h-[70vh]"
         />
       </div>
