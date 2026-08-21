@@ -1,25 +1,36 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Radio } from 'lucide-react';
+import { Plus, Radio, Hash, Volume2 } from 'lucide-react';
 import { VoiceChannel } from '../../types/index.js';
 import { api } from '../../services/api.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useSocket } from '../../context/SocketContext.js';
+import { useVoice } from '../../context/VoiceContext.js';
 import { useToast } from '../../context/ToastContext.js';
 import { ChannelItem } from './ChannelItem.js';
 import { ChannelModal } from './ChannelModal.js';
 import { Modal } from '../ui/Modal.js';
 import { Button } from '../ui/Button.js';
 
-export const ChannelList: React.FC = () => {
+interface ChannelListProps {
+  selectedTextChannelId: string | null;
+  onSelectTextChannel: (channel: VoiceChannel) => void;
+}
+
+export const ChannelList: React.FC<ChannelListProps> = ({
+  selectedTextChannelId,
+  onSelectTextChannel,
+}) => {
   const { user } = useAuth();
   const { socket, globalPresence } = useSocket();
+  const { currentChannel: currentVoiceChannel, joinChannel } = useVoice();
   const { error, success } = useToast();
 
   const [channels, setChannels] = useState<VoiceChannel[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Estados de modais administrativos
+  // Estados de modais
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [channelTypeToCreate, setChannelTypeToCreate] = useState<'VOICE' | 'TEXT'>('VOICE');
   const [channelToEdit, setChannelToEdit] = useState<VoiceChannel | null>(null);
   const [channelToDelete, setChannelToDelete] = useState<VoiceChannel | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -30,6 +41,12 @@ export const ChannelList: React.FC = () => {
     try {
       const data = await api.getChannels();
       setChannels(data.channels);
+
+      // Se nenhum canal de texto estiver selecionado, seleciona o primeiro canal de texto por padrão
+      const textChannels = data.channels.filter((c) => c.type === 'TEXT');
+      if (textChannels.length > 0 && !selectedTextChannelId) {
+        onSelectTextChannel(textChannels[0]);
+      }
     } catch (err: any) {
       error(err.message || 'Erro ao carregar canais');
     } finally {
@@ -41,7 +58,6 @@ export const ChannelList: React.FC = () => {
     fetchChannels();
   }, []);
 
-  // Escuta atualizações de canais via Socket.IO
   useEffect(() => {
     if (!socket) return;
 
@@ -59,30 +75,20 @@ export const ChannelList: React.FC = () => {
       setChannels((prev) => prev.filter((ch) => ch.id !== data.channelId));
     };
 
-    const onChannelsReordered = (data: { channels: VoiceChannel[] }) => {
-      setChannels(data.channels);
-    };
-
     socket.on('channel:created', onChannelCreated);
     socket.on('channel:updated', onChannelUpdated);
     socket.on('channel:deleted', onChannelDeleted);
-    socket.on('channels:reordered', onChannelsReordered);
 
     return () => {
       socket.off('channel:created', onChannelCreated);
       socket.off('channel:updated', onChannelUpdated);
       socket.off('channel:deleted', onChannelDeleted);
-      socket.off('channels:reordered', onChannelsReordered);
     };
   }, [socket]);
 
-  const handleOpenCreateModal = () => {
+  const handleOpenCreateModal = (type: 'VOICE' | 'TEXT') => {
+    setChannelTypeToCreate(type);
     setChannelToEdit(null);
-    setIsModalOpen(true);
-  };
-
-  const handleOpenEditModal = (channel: VoiceChannel) => {
-    setChannelToEdit(channel);
     setIsModalOpen(true);
   };
 
@@ -102,82 +108,110 @@ export const ChannelList: React.FC = () => {
     }
   };
 
+  const textChannels = channels.filter((c) => c.type === 'TEXT');
+  const voiceChannels = channels.filter((c) => c.type !== 'TEXT');
+
   return (
-    <div className="flex-1 overflow-y-auto px-2 py-3">
-      {/* Header da Seção de Canais */}
-      <div className="flex items-center justify-between px-2 mb-2">
-        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400 tracking-wider uppercase">
-          <Radio className="w-3.5 h-3.5 text-brand-400" />
-          <span>Canais de Voz</span>
+    <div className="flex-1 overflow-y-auto px-2 py-3 space-y-6">
+      {/* 1. SEÇÃO DE CANAIS DE TEXTO */}
+      <div>
+        <div className="flex items-center justify-between px-2 mb-2">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400 tracking-wider uppercase">
+            <Hash className="w-3.5 h-3.5 text-brand-400" />
+            <span>Canais de Texto</span>
+          </div>
+
+          {isAdmin && (
+            <button
+              onClick={() => handleOpenCreateModal('TEXT')}
+              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-background-surface transition-colors"
+              title="Criar canal de texto"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
-        {isAdmin && (
-          <button
-            onClick={handleOpenCreateModal}
-            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-background-surface transition-colors"
-            title="Criar novo canal de voz"
-            aria-label="Criar canal de voz"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-        )}
+        <div className="space-y-0.5">
+          {textChannels.map((channel) => {
+            const isSelected = selectedTextChannelId === channel.id;
+            return (
+              <div
+                key={channel.id}
+                onClick={() => onSelectTextChannel(channel)}
+                className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium cursor-pointer transition-all ${
+                  isSelected
+                    ? 'bg-brand-600/20 text-brand-300 border border-brand-500/30'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-background-hover'
+                }`}
+              >
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <Hash className="w-4 h-4 flex-shrink-0 text-slate-400" />
+                  <span className="truncate font-semibold">{channel.name}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Lista de Canais */}
-      {isLoading ? (
-        <div className="p-4 text-center text-xs text-slate-500 animate-pulse">
-          Carregando canais...
-        </div>
-      ) : channels.length === 0 ? (
-        <div className="p-4 text-center text-xs text-slate-500">
-          Nenhum canal de voz disponível
-        </div>
-      ) : (
-        channels.map((channel) => (
-          <ChannelItem
-            key={channel.id}
-            channel={channel}
-            participants={globalPresence[channel.id] || []}
-            onEdit={isAdmin ? handleOpenEditModal : undefined}
-            onDelete={isAdmin ? (ch) => setChannelToDelete(ch) : undefined}
-          />
-        ))
-      )}
+      {/* 2. SEÇÃO DE CANAIS DE VOZ */}
+      <div>
+        <div className="flex items-center justify-between px-2 mb-2">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400 tracking-wider uppercase">
+            <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Canais de Voz</span>
+          </div>
 
-      {/* Modal de Criação / Edição de Canais (Admin) */}
+          {isAdmin && (
+            <button
+              onClick={() => handleOpenCreateModal('VOICE')}
+              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-background-surface transition-colors"
+              title="Criar canal de voz"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        <div className="space-y-1">
+          {voiceChannels.map((channel) => (
+            <ChannelItem
+              key={channel.id}
+              channel={channel}
+              participants={globalPresence[channel.id] || []}
+              onEdit={isAdmin ? (ch) => { setChannelToEdit(ch); setIsModalOpen(true); } : undefined}
+              onDelete={isAdmin ? (ch) => setChannelToDelete(ch) : undefined}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Modal de Criação / Edição */}
       <ChannelModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         channelToEdit={channelToEdit}
+        defaultType={channelTypeToCreate}
         onSuccess={fetchChannels}
       />
 
-      {/* Modal de Confirmação de Exclusão */}
+      {/* Modal de Exclusão */}
       <Modal
         isOpen={!!channelToDelete}
         onClose={() => setChannelToDelete(null)}
-        title="Excluir Canal de Voz"
-        description="Esta ação removerá o canal e desconectará os participantes."
+        title="Excluir Canal"
+        description="Esta ação removerá o canal permanentemente."
       >
         <div className="space-y-4 pt-2">
           <p className="text-sm text-slate-300">
-            Tem certeza de que deseja excluir permanentemente o canal{' '}
-            <strong className="text-white">"{channelToDelete?.name}"</strong>?
+            Tem certeza de que deseja excluir o canal <strong className="text-white">"{channelToDelete?.name}"</strong>?
           </p>
-
           <div className="flex justify-end gap-2 pt-2">
-            <Button
-              variant="secondary"
-              onClick={() => setChannelToDelete(null)}
-              disabled={isDeleting}
-            >
+            <Button variant="secondary" onClick={() => setChannelToDelete(null)}>
               Cancelar
             </Button>
-            <Button
-              variant="danger"
-              onClick={handleConfirmDelete}
-              isLoading={isDeleting}
-            >
+            <Button variant="danger" onClick={handleConfirmDelete} isLoading={isDeleting}>
               Confirmar Exclusão
             </Button>
           </div>

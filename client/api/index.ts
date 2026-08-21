@@ -19,8 +19,31 @@ const pool = new Pool({
   idleTimeoutMillis: 30000
 });
 
-// Auto migrate bio column if not exists
-pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT \'\';').catch(() => {});
+// Auto migrate columns
+async function initDb() {
+  try {
+    await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT \'\';');
+    await pool.query('ALTER TABLE voice_channels ADD COLUMN IF NOT EXISTS type VARCHAR(10) DEFAULT \'VOICE\';');
+    await pool.query('ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_url TEXT DEFAULT \'\';');
+    await pool.query('ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_type VARCHAR(20) DEFAULT \'\';');
+
+    // Seed default text channels if none exist
+    const textCheck = await pool.query("SELECT COUNT(*) as count FROM voice_channels WHERE type = 'TEXT'");
+    if (parseInt(textCheck.rows[0].count, 10) === 0) {
+      await pool.query(`
+        INSERT INTO voice_channels (id, name, description, position, type) VALUES
+        ('text-geral', 'geral', 'Canal de texto principal para conversar', 0, 'TEXT'),
+        ('text-anuncios', 'anúncios', 'Novidades e comunicados importantes', 1, 'TEXT'),
+        ('text-midia', 'memes-e-mídia', 'Envie fotos, vídeos, prints e memes', 2, 'TEXT'),
+        ('text-batepapo', 'bate-papo', 'Conversa livre entre membros', 3, 'TEXT')
+        ON CONFLICT (id) DO NOTHING;
+      `);
+    }
+  } catch (err) {
+    console.warn('[DB_INIT_WARN]', err);
+  }
+}
+initDb();
 
 const app = express();
 
@@ -31,8 +54,8 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'Bypass-Tunnel-Reminder']
 }));
 
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+app.use(express.json({ limit: '15mb' }));
+app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 app.use(cookieParser());
 
 async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -136,7 +159,6 @@ app.get('/api/auth/me', requireAuth, (req: Request, res: Response) => {
   res.json({ user: (req as any).user });
 });
 
-// PATCH /api/auth/profile - Atualizar Perfil (Nome, Foto/Avatar, Bio)
 app.patch('/api/auth/profile', requireAuth, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
@@ -169,7 +191,7 @@ app.post('/api/auth/logout', (req: Request, res: Response) => {
 
 app.get('/api/channels', requireAuth, async (req: Request, res: Response) => {
   try {
-    const result = await pool.query('SELECT * FROM voice_channels ORDER BY position ASC, created_at ASC');
+    const result = await pool.query('SELECT id, name, description, position, COALESCE(type, \'VOICE\') as type, created_at as "createdAt", updated_at as "updatedAt" FROM voice_channels ORDER BY position ASC, created_at ASC');
     res.json({ channels: result.rows });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Erro ao carregar canais' });
@@ -183,16 +205,17 @@ app.post('/api/channels', requireAuth, async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Acesso negado: Apenas administradores podem criar canais' });
     }
 
-    const { name, description } = req.body;
+    const { name, description, type } = req.body;
     if (!name) return res.status(400).json({ error: 'Nome obrigatório' });
 
-    const maxPos = await pool.query('SELECT MAX(position) as max_pos FROM voice_channels');
+    const channelType = type === 'TEXT' ? 'TEXT' : 'VOICE';
+    const maxPos = await pool.query('SELECT MAX(position) as max_pos FROM voice_channels WHERE type = $1', [channelType]);
     const pos = (maxPos.rows[0]?.max_pos !== null && maxPos.rows[0]?.max_pos !== undefined) ? Number(maxPos.rows[0].max_pos) + 1 : 0;
     const channelId = crypto.randomUUID();
 
     const insert = await pool.query(
-      'INSERT INTO voice_channels (id, name, description, position) VALUES ($1, $2, $3, $4) RETURNING *',
-      [channelId, name, description || '', pos]
+      'INSERT INTO voice_channels (id, name, description, position, type) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, description, position, type, created_at as "createdAt", updated_at as "updatedAt"',
+      [channelId, name, description || '', pos, channelType]
     );
 
     res.status(201).json({ channel: insert.rows[0] });
@@ -214,15 +237,48 @@ app.delete('/api/channels/:id', requireAuth, async (req: Request, res: Response)
   }
 });
 
+// GET /api/messages/:channelId - Obter Histórico de Mensagens
 app.get('/api/messages/:channelId', requireAuth, async (req: Request, res: Response) => {
   try {
     const result = await pool.query(
-      'SELECT id, channel_id as "channelId", user_id as "userId", username, avatar, role, content, created_at as "createdAt" FROM messages WHERE channel_id = $1 ORDER BY created_at ASC LIMIT 50',
+      'SELECT id, channel_id as "channelId", user_id as "userId", username, avatar, role, content, COALESCE(media_url, \'\') as "mediaUrl", COALESCE(media_type, \'\') as "mediaType", created_at as "createdAt" FROM messages WHERE channel_id = $1 ORDER BY created_at ASC LIMIT 100',
       [req.params.channelId]
     );
     res.json({ messages: result.rows });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/messages/:channelId - Enviar Nova Mensagem (com suporte a Imagem/Vídeo)
+app.post('/api/messages/:channelId', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { content, mediaUrl, mediaType } = req.body;
+
+    if ((!content || !content.trim()) && !mediaUrl) {
+      return res.status(400).json({ error: 'A mensagem não pode estar vazia' });
+    }
+
+    const messageId = crypto.randomUUID();
+    const result = await pool.query(
+      'INSERT INTO messages (id, channel_id, user_id, username, avatar, role, content, media_url, media_type) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id, channel_id as "channelId", user_id as "userId", username, avatar, role, content, media_url as "mediaUrl", media_type as "mediaType", created_at as "createdAt"',
+      [
+        messageId,
+        req.params.channelId,
+        user.id,
+        user.username,
+        user.avatar,
+        user.role,
+        content ? content.trim() : '',
+        mediaUrl || '',
+        mediaType || ''
+      ]
+    );
+
+    res.status(201).json({ message: result.rows[0] });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Erro ao enviar mensagem' });
   }
 });
 

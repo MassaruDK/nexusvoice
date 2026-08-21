@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { Mic, MicOff, Video, Headphones, Monitor, Maximize2 } from 'lucide-react';
+import { Mic, MicOff, Video, Headphones, Monitor } from 'lucide-react';
 import { ParticipantState } from '../../types/index.js';
 import { Avatar } from '../ui/Avatar.js';
 import { Badge } from '../ui/Badge.js';
@@ -24,22 +24,21 @@ export const ParticipantCard: React.FC<ParticipantCardProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
-  const hasVideoTrack = !!stream?.getVideoTracks().some(t => t.readyState === 'live');
+  // Renderiza vídeo na caixa do participante SOMENTE se a WEBCAM estiver ligada (nunca para screen share)
+  const isWebcamActive = participant.hasVideo && !!stream?.getVideoTracks().some(t => t.readyState === 'live');
   const hasAudioTrack = !!stream?.getAudioTracks().some(t => t.readyState === 'live');
 
-  // Conectar o stream de vídeo ao elemento <video>
   useEffect(() => {
-    if (videoRef.current && stream && hasVideoTrack) {
+    if (videoRef.current && stream && isWebcamActive) {
       videoRef.current.srcObject = stream;
-      videoRef.current.play().catch((e) => console.log('[VIDEO] Play auto blocked:', e));
+      videoRef.current.play().catch(() => {});
     }
-  }, [stream, hasVideoTrack]);
+  }, [stream, isWebcamActive]);
 
-  // Conectar o áudio remoto ao elemento <audio> oculto
   useEffect(() => {
     if (!isSelf && audioRef.current && stream && hasAudioTrack) {
       audioRef.current.srcObject = stream;
-      audioRef.current.play().catch((e) => console.log('[AUDIO] Play auto blocked:', e));
+      audioRef.current.play().catch(() => {});
     }
   }, [isSelf, stream, hasAudioTrack]);
 
@@ -51,22 +50,20 @@ export const ParticipantCard: React.FC<ParticipantCardProps> = ({
           : 'border-background-border/80 hover:border-background-border'
       }`}
     >
-      {/* Elemento de Áudio Remoto */}
       {!isSelf && <audio ref={audioRef} autoPlay playsInline />}
 
-      {/* Exibição de Vídeo / Câmera ou Tela se ativa */}
-      {hasVideoTrack ? (
-        <div className="absolute inset-0 w-full h-full bg-black/90 flex items-center justify-center">
+      {isWebcamActive ? (
+        <div className="absolute inset-0 w-full h-full bg-black flex items-center justify-center">
           <video
             ref={videoRef}
             autoPlay
             playsInline
             muted={isSelf}
-            className={`w-full h-full object-cover ${isSelf && !participant.isScreenSharing ? 'scale-x-[-1]' : ''}`}
+            className={`w-full h-full object-cover ${isSelf ? 'scale-x-[-1]' : ''}`}
           />
         </div>
       ) : (
-        /* Exibição do Avatar e Informações */
+        /* Foto de Perfil / Avatar SEMPRE visível */
         <div className="flex flex-col items-center justify-center z-10 space-y-3">
           <Avatar
             src={participant.avatar}
@@ -77,21 +74,20 @@ export const ParticipantCard: React.FC<ParticipantCardProps> = ({
         </div>
       )}
 
-      {/* Barra Inferior com Nome e Ícones de Status */}
+      {/* Barra Inferior */}
       <div className="absolute bottom-2.5 left-2.5 right-2.5 flex items-center justify-between z-20 pointer-events-none">
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-background-darkest/80 backdrop-blur-md border border-background-border/50 text-xs font-medium text-slate-100 max-w-[70%]">
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-background-darkest/85 backdrop-blur-md border border-background-border/50 text-xs font-medium text-slate-100 max-w-[70%]">
           <span className="truncate">{participant.username}</span>
           {isSelf && <span className="text-[10px] text-slate-400 font-normal">(Você)</span>}
           {participant.role === 'ADMIN' && <Badge variant="admin">Admin</Badge>}
         </div>
 
-        {/* Indicadores de Mídia */}
         <div className="flex items-center gap-1">
           {participant.isScreenSharing && (
             <div
               className="p-1.5 rounded-lg bg-accent-cyan/20 text-accent-cyan border border-accent-cyan/30 pointer-events-auto cursor-pointer"
               onClick={onPinScreen}
-              title="Fixar Transmissão"
+              title="Transmitindo Tela (Clique para ver)"
             >
               <Monitor className="w-3.5 h-3.5" />
             </div>

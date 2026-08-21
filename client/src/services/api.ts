@@ -151,6 +151,13 @@ class ApiService {
     });
   }
 
+  async sendMessage(channelId: string, data: { content: string; mediaUrl?: string; mediaType?: string }): Promise<{ message: ChatMessage }> {
+    return this.request<{ message: ChatMessage }>(`/messages/${channelId}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
   async getMessages(channelId: string): Promise<{ messages: ChatMessage[] }> {
     return this.request<{ messages: ChatMessage[] }>(`/messages/${channelId}`);
   }

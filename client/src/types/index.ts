@@ -1,4 +1,5 @@
 export type UserRole = 'ADMIN' | 'USER';
+export type ChannelType = 'VOICE' | 'TEXT';
 
 export interface User {
   id: string;
@@ -16,6 +17,7 @@ export interface VoiceChannel {
   name: string;
   description?: string;
   position: number;
+  type?: ChannelType;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -49,6 +51,8 @@ export interface ChatMessage {
   avatar: string;
   role: UserRole;
   content: string;
+  mediaUrl?: string;
+  mediaType?: 'image' | 'video' | 'gif' | '';
   createdAt: string;
 }
 
