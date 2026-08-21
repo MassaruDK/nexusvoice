@@ -78,12 +78,11 @@ export const YouTubeSearchModal: React.FC<YouTubeSearchModalProps> = ({
     }
 
     const track: MusicTrack = {
-      id: Math.random().toString(36).substring(2, 9),
       youtubeId,
       title,
       thumbnail: `https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg`,
+      duration: 0,
       addedBy: user.username,
-      addedByAvatar: user.avatar,
     };
 
     if (isQueue) {

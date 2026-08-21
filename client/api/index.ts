@@ -19,6 +19,9 @@ const pool = new Pool({
   idleTimeoutMillis: 30000
 });
 
+// Auto migrate bio column if not exists
+pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT \'\';').catch(() => {});
+
 const app = express();
 
 app.use(cors({
@@ -32,7 +35,6 @@ app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(cookieParser());
 
-// Middleware de Autenticação
 async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   let token = req.cookies?.[COOKIE_NAME];
   if (!token && req.headers.authorization?.startsWith('Bearer ')) {
@@ -47,7 +49,7 @@ async function requireAuth(req: Request, res: Response, next: NextFunction): Pro
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as any;
     const result = await pool.query(
-      'SELECT id, username, email, role, avatar, created_at, updated_at FROM users WHERE id = $1',
+      'SELECT id, username, email, role, avatar, bio, created_at, updated_at FROM users WHERE id = $1',
       [decoded.id]
     );
     const user = result.rows[0];
@@ -62,7 +64,6 @@ async function requireAuth(req: Request, res: Response, next: NextFunction): Pro
   }
 }
 
-// Health check
 app.get('/api/health', async (req: Request, res: Response) => {
   try {
     const dbRes = await pool.query('SELECT NOW() as now');
@@ -72,7 +73,6 @@ app.get('/api/health', async (req: Request, res: Response) => {
   }
 });
 
-// AUTH: Register
 app.post('/api/auth/register', async (req: Request, res: Response) => {
   try {
     const { username, email, password, confirmPassword } = req.body;
@@ -94,11 +94,11 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
     const avatar = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(username)}&backgroundColor=0284c7,38bdf8,0ea5e9`;
 
     await pool.query(
-      'INSERT INTO users (id, username, email, password_hash, role, avatar) VALUES ($1, $2, $3, $4, $5, $6)',
-      [userId, username, email.toLowerCase(), passwordHash, 'USER', avatar]
+      'INSERT INTO users (id, username, email, password_hash, role, avatar, bio) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      [userId, username, email.toLowerCase(), passwordHash, 'USER', avatar, '']
     );
 
-    const safeUser = { id: userId, username, email: email.toLowerCase(), role: 'USER', avatar };
+    const safeUser = { id: userId, username, email: email.toLowerCase(), role: 'USER', avatar, bio: '' };
     const token = jwt.sign(safeUser, JWT_SECRET, { expiresIn: '7d' });
 
     res.cookie(COOKIE_NAME, token, { httpOnly: true, secure: true, sameSite: 'none', maxAge: 7 * 24 * 60 * 60 * 1000 });
@@ -108,7 +108,6 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
   }
 });
 
-// AUTH: Login
 app.post('/api/auth/login', async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
@@ -133,18 +132,41 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
   }
 });
 
-// AUTH: Current User
 app.get('/api/auth/me', requireAuth, (req: Request, res: Response) => {
   res.json({ user: (req as any).user });
 });
 
-// AUTH: Logout
+// PATCH /api/auth/profile - Atualizar Perfil (Nome, Foto/Avatar, Bio)
+app.patch('/api/auth/profile', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { username, avatar, bio } = req.body;
+
+    const result = await pool.query(
+      'UPDATE users SET username = COALESCE($1, username), avatar = COALESCE($2, avatar), bio = COALESCE($3, bio), updated_at = NOW() WHERE id = $4 RETURNING id, username, email, role, avatar, bio, created_at, updated_at',
+      [
+        username ? username.trim() : null,
+        avatar ? avatar.trim() : null,
+        bio !== undefined ? bio.trim() : null,
+        user.id
+      ]
+    );
+
+    const updatedUser = result.rows[0];
+    const token = jwt.sign(updatedUser, JWT_SECRET, { expiresIn: '7d' });
+
+    res.cookie(COOKIE_NAME, token, { httpOnly: true, secure: true, sameSite: 'none', maxAge: 7 * 24 * 60 * 60 * 1000 });
+    res.json({ user: updatedUser, token });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Erro ao atualizar perfil' });
+  }
+});
+
 app.post('/api/auth/logout', (req: Request, res: Response) => {
   res.clearCookie(COOKIE_NAME, { httpOnly: true, sameSite: 'none', secure: true });
   res.json({ success: true });
 });
 
-// CHANNELS: Get All
 app.get('/api/channels', requireAuth, async (req: Request, res: Response) => {
   try {
     const result = await pool.query('SELECT * FROM voice_channels ORDER BY position ASC, created_at ASC');
@@ -154,7 +176,6 @@ app.get('/api/channels', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// CHANNELS: Create Channel
 app.post('/api/channels', requireAuth, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
@@ -180,7 +201,6 @@ app.post('/api/channels', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// CHANNELS: Delete Channel
 app.delete('/api/channels/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
@@ -194,7 +214,6 @@ app.delete('/api/channels/:id', requireAuth, async (req: Request, res: Response)
   }
 });
 
-// MESSAGES: Get Channel Messages
 app.get('/api/messages/:channelId', requireAuth, async (req: Request, res: Response) => {
   try {
     const result = await pool.query(

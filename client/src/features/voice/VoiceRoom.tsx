@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Volume2, Users, Wifi, MessageSquare, Monitor } from 'lucide-react';
+import { Volume2, Users, Wifi, MessageSquare, Monitor, LayoutGrid } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.js';
 import { useVoice } from '../../context/VoiceContext.js';
 import { ParticipantCard } from './ParticipantCard.js';
@@ -30,7 +30,7 @@ export const VoiceRoom: React.FC<VoiceRoomProps> = ({ onOpenSettings }) => {
   } = useVoice();
 
   const [isChatOpen, setIsChatOpen] = useState(false);
-  const [pinnedScreenUserId, setPinnedScreenUserId] = useState<string | null>(null);
+  const [pinnedSharerId, setPinnedSharerId] = useState<string | null>(null);
 
   if (!currentChannel || !user) {
     return (
@@ -66,28 +66,28 @@ export const VoiceRoom: React.FC<VoiceRoomProps> = ({ onOpenSettings }) => {
     ...participants.filter((p) => p.userId !== user.id),
   ];
 
-  // Encontra quem está transmitindo tela (local ou remoto)
-  const screenSharer = allParticipants.find((p) => p.isScreenSharing);
-  let activeScreenStream: MediaStream | null = null;
+  // Lista de todos que estão compartilhando tela simultaneamente
+  const screenSharers = allParticipants.filter((p) => p.isScreenSharing);
 
-  if (screenSharer) {
-    if (screenSharer.userId === user.id) {
-      activeScreenStream = localScreenStream;
-    } else {
-      activeScreenStream = remoteStreams.get(screenSharer.socketId) || null;
-    }
+  // Layout harmônico dinâmico para múltiplas transmissões de tela
+  let screenGridClass = 'grid-cols-1 max-w-5xl mx-auto';
+  if (screenSharers.length === 2) {
+    screenGridClass = 'grid-cols-1 md:grid-cols-2';
+  } else if (screenSharers.length >= 3) {
+    screenGridClass = 'grid-cols-1 md:grid-cols-2 lg:grid-cols-2';
   }
 
+  // Layout dos cards de participantes
   const count = allParticipants.length;
-  let gridColsClass = 'grid-cols-1 md:grid-cols-2';
-  if (count === 1) gridColsClass = 'grid-cols-1 max-w-2xl mx-auto';
-  else if (count === 2) gridColsClass = 'grid-cols-1 md:grid-cols-2';
-  else if (count >= 3 && count <= 4) gridColsClass = 'grid-cols-1 sm:grid-cols-2';
-  else if (count > 4) gridColsClass = 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3';
+  let participantGridClass = 'grid-cols-1 md:grid-cols-2';
+  if (count === 1) participantGridClass = 'grid-cols-1 max-w-xl mx-auto';
+  else if (count === 2) participantGridClass = 'grid-cols-1 md:grid-cols-2';
+  else if (count >= 3 && count <= 4) participantGridClass = 'grid-cols-1 sm:grid-cols-2';
+  else if (count > 4) participantGridClass = 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3';
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-background-darkest relative">
-      {/* Header do Canal Conectado */}
+      {/* Header do Canal */}
       <div className="h-14 px-5 border-b border-background-border/80 flex items-center justify-between flex-shrink-0 bg-background/60 backdrop-blur-md">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
@@ -109,10 +109,10 @@ export const VoiceRoom: React.FC<VoiceRoomProps> = ({ onOpenSettings }) => {
         </div>
 
         <div className="flex items-center gap-2">
-          {screenSharer && (
-            <span className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-accent-cyan/15 border border-accent-cyan/30 text-accent-cyan text-xs font-semibold animate-pulse">
+          {screenSharers.length > 0 && (
+            <span className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-accent-cyan/15 border border-accent-cyan/30 text-accent-cyan text-xs font-semibold">
               <Monitor className="w-3.5 h-3.5" />
-              <span>Transmissão: {screenSharer.username}</span>
+              <span>{screenSharers.length} {screenSharers.length === 1 ? 'Transmissão ativa' : 'Transmissões ativas'}</span>
             </span>
           )}
 
@@ -141,25 +141,56 @@ export const VoiceRoom: React.FC<VoiceRoomProps> = ({ onOpenSettings }) => {
       {/* Barra Sincronizada de Música (YouTube) */}
       <MusicPlayer channelId={currentChannel.id} />
 
-      {/* Conteúdo Central (Grid de Vídeo/Áudio + Chat de Texto) */}
+      {/* Conteúdo Central */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Área Principal de Chamada */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex-1 overflow-y-auto p-4 md:p-6 flex flex-col gap-4">
-            {/* Tela Compartilhada em Destaque */}
-            {screenSharer && (
-              <div className="w-full flex-shrink-0">
-                <ScreenShareView
-                  stream={activeScreenStream || new MediaStream()}
-                  sharer={screenSharer}
-                  isSelf={screenSharer.userId === user.id}
-                  onClose={() => setPinnedScreenUserId(null)}
-                />
+          <div className="flex-1 overflow-y-auto p-4 md:p-6 flex flex-col gap-5">
+            {/* GRID HARMÔNICO DE TRANSMISSÕES DE TELA (1, 2, 3, 4+ Telas) */}
+            {screenSharers.length > 0 && (
+              <div className="w-full space-y-3">
+                <div className="flex items-center justify-between text-xs text-slate-400 font-semibold px-1">
+                  <span className="flex items-center gap-1.5 text-accent-cyan">
+                    <LayoutGrid className="w-4 h-4" />
+                    Transmissões em Tempo Real ({screenSharers.length})
+                  </span>
+                  {pinnedSharerId && (
+                    <button
+                      onClick={() => setPinnedSharerId(null)}
+                      className="text-[11px] text-brand-400 hover:underline"
+                    >
+                      Exibir Todas em Grade
+                    </button>
+                  )}
+                </div>
+
+                <div className={`grid ${pinnedSharerId ? 'grid-cols-1' : screenGridClass} gap-4 w-full`}>
+                  {screenSharers
+                    .filter((sharer) => !pinnedSharerId || sharer.userId === pinnedSharerId)
+                    .map((sharer) => {
+                      const isSelf = sharer.userId === user.id;
+                      const stream = isSelf
+                        ? localScreenStream
+                        : remoteStreams.get(sharer.socketId);
+
+                      return (
+                        <ScreenShareView
+                          key={sharer.userId}
+                          stream={stream || new MediaStream()}
+                          sharer={sharer}
+                          isSelf={isSelf}
+                          isPinned={pinnedSharerId === sharer.userId}
+                          onTogglePin={() =>
+                            setPinnedSharerId(pinnedSharerId === sharer.userId ? null : sharer.userId)
+                          }
+                        />
+                      );
+                    })}
+                </div>
               </div>
             )}
 
-            {/* Grid de Participantes */}
-            <div className={`grid ${gridColsClass} gap-3 w-full flex-1 auto-rows-fr`}>
+            {/* GRID DE PARTICIPANTES */}
+            <div className={`grid ${participantGridClass} gap-3.5 w-full flex-1 auto-rows-fr`}>
               {allParticipants.map((p) => {
                 const isSelf = p.userId === user.id;
                 const stream = isSelf
@@ -174,8 +205,8 @@ export const VoiceRoom: React.FC<VoiceRoomProps> = ({ onOpenSettings }) => {
                     isSelf={isSelf}
                     stream={stream}
                     isSpeaking={isSpeaking}
-                    onPinScreen={() => setPinnedScreenUserId(p.userId)}
-                    isScreenPinned={pinnedScreenUserId === p.userId}
+                    onPinScreen={() => setPinnedSharerId(p.userId)}
+                    isScreenPinned={pinnedSharerId === p.userId}
                   />
                 );
               })}
@@ -188,7 +219,7 @@ export const VoiceRoom: React.FC<VoiceRoomProps> = ({ onOpenSettings }) => {
           </div>
         </div>
 
-        {/* Painel Lateral de Chat de Texto */}
+        {/* Chat Lateral */}
         {isChatOpen && (
           <ChatPanel
             channelId={currentChannel.id}

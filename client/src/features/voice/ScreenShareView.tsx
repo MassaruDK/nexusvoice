@@ -1,74 +1,103 @@
-import React, { useRef, useEffect } from 'react';
-import { Monitor, X, Maximize } from 'lucide-react';
+import React, { useRef, useEffect, useState } from 'react';
+import { Monitor, Maximize, Minimize, Pin, PinOff } from 'lucide-react';
 import { ParticipantState } from '../../types/index.js';
+import { Avatar } from '../ui/Avatar.js';
 
 interface ScreenShareViewProps {
   stream: MediaStream;
   sharer: ParticipantState;
   isSelf: boolean;
-  onClose?: () => void;
+  isPinned?: boolean;
+  onTogglePin?: () => void;
 }
 
 export const ScreenShareView: React.FC<ScreenShareViewProps> = ({
   stream,
   sharer,
   isSelf,
-  onClose,
+  isPinned,
+  onTogglePin,
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
-      videoRef.current.play().catch((e) => console.log('[SCREEN] Autoplay handled:', e));
+      videoRef.current.play().catch(() => {});
     }
   }, [stream]);
 
   const handleFullScreen = () => {
-    if (videoRef.current?.requestFullscreen) {
-      videoRef.current.requestFullscreen();
+    if (!containerRef.current) return;
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().catch(() => {});
+      setIsFullscreen(true);
+    } else {
+      document.exitFullscreen().catch(() => {});
+      setIsFullscreen(false);
     }
   };
 
+  useEffect(() => {
+    const onFsChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
+
   return (
-    <div className="relative w-full h-full min-h-[350px] flex-1 bg-background-darkest rounded-2xl overflow-hidden border border-background-border shadow-2xl flex flex-col">
-      {/* Header do Compartilhamento */}
-      <div className="absolute top-3 left-3 right-3 z-30 flex items-center justify-between pointer-events-none">
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-background-darkest/90 backdrop-blur-md border border-background-border text-xs text-slate-100 font-semibold pointer-events-auto">
-          <Monitor className="w-4 h-4 text-accent-cyan" />
-          <span>Tela de {sharer.username} {isSelf && '(Você)'}</span>
+    <div
+      ref={containerRef}
+      className="relative w-full h-full min-h-[260px] bg-background-darkest rounded-2xl overflow-hidden border border-background-border shadow-xl flex flex-col group transition-all duration-200 aspect-video"
+    >
+      {/* Barra Superior da Janela de Transmissão */}
+      <div className="absolute top-2.5 left-2.5 right-2.5 z-30 flex items-center justify-between pointer-events-none">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-background-darkest/85 backdrop-blur-md border border-background-border/70 text-xs text-slate-100 font-semibold pointer-events-auto shadow-md">
+          <Avatar src={sharer.avatar} name={sharer.username} size="sm" />
+          <span className="truncate max-w-[140px] sm:max-w-[200px]">
+            {sharer.username} {isSelf && '(Você)'}
+          </span>
+          <span className="px-1.5 py-0.2 rounded bg-accent-cyan/20 text-accent-cyan text-[10px] font-bold">
+            AO VIVO
+          </span>
         </div>
 
-        <div className="flex items-center gap-1 pointer-events-auto">
-          <button
-            onClick={handleFullScreen}
-            className="p-2 rounded-xl bg-background-darkest/90 backdrop-blur-md border border-background-border text-slate-300 hover:text-white transition-colors"
-            title="Tela Cheia"
-            aria-label="Tela Cheia"
-          >
-            <Maximize className="w-4 h-4" />
-          </button>
-          {onClose && (
+        <div className="flex items-center gap-1.5 pointer-events-auto opacity-80 group-hover:opacity-100 transition-opacity">
+          {onTogglePin && (
             <button
-              onClick={onClose}
-              className="p-2 rounded-xl bg-background-darkest/90 backdrop-blur-md border border-background-border text-slate-300 hover:text-rose-400 transition-colors"
-              title="Ocultar Visão em Destaque"
-              aria-label="Ocultar"
+              onClick={onTogglePin}
+              className={`p-2 rounded-xl backdrop-blur-md border text-xs transition-colors shadow-md ${
+                isPinned
+                  ? 'bg-brand-600 border-brand-500 text-white'
+                  : 'bg-background-darkest/85 border-background-border text-slate-300 hover:text-white'
+              }`}
+              title={isPinned ? 'Desafixar Janela' : 'Fixar / Expandir Tela'}
             >
-              <X className="w-4 h-4" />
+              {isPinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
             </button>
           )}
+
+          <button
+            onClick={handleFullScreen}
+            className="p-2 rounded-xl bg-background-darkest/85 backdrop-blur-md border border-background-border text-slate-300 hover:text-white transition-colors shadow-md"
+            title={isFullscreen ? 'Sair da Tela Cheia' : 'Tela Cheia'}
+          >
+            {isFullscreen ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
+          </button>
         </div>
       </div>
 
-      {/* Vídeo da Tela - muted={true} garante que o navegador nunca bloqueie frames com tela preta */}
+      {/* Renderização de Vídeo */}
       <div className="flex-1 w-full h-full flex items-center justify-center bg-black">
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted
-          className="w-full h-full object-contain max-h-[70vh]"
+          className="w-full h-full object-contain"
         />
       </div>
     </div>

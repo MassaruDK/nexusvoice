@@ -95,6 +95,17 @@ class ApiService {
     return res;
   }
 
+  async updateProfile(data: { username?: string; avatar?: string; bio?: string }): Promise<{ user: User; token: string }> {
+    const res = await this.request<{ user: User; token: string }>('/auth/profile', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+    if (res.token) {
+      localStorage.setItem('auth_token_ref', res.token);
+    }
+    return res;
+  }
+
   async getCurrentUser(): Promise<{ user: User }> {
     return this.request<{ user: User }>('/auth/me');
   }

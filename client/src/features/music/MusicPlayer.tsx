@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Play,
   Pause,
@@ -34,14 +34,17 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ channelId }) => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isQueueOpen, setIsQueueOpen] = useState(false);
   const [showVideo, setShowVideo] = useState(false);
+
+  // Carrega volume persistido exato (ex: 3%)
   const [volume, setVolume] = useState<number>(() => {
-    return parseInt(localStorage.getItem('nexus_music_vol') || '80', 10);
+    const saved = localStorage.getItem('nexus_music_vol');
+    return saved !== null ? parseInt(saved, 10) : 50;
   });
   const [isMuted, setIsMuted] = useState(false);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  const sendYtCommand = (func: string, args: any[] = []) => {
+  const sendYtCommand = useCallback((func: string, args: any[] = []) => {
     try {
       if (iframeRef.current && iframeRef.current.contentWindow) {
         iframeRef.current.contentWindow.postMessage(
@@ -50,9 +53,18 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ channelId }) => {
         );
       }
     } catch (_) {}
-  };
+  }, []);
 
-  // Limpa e para a reprodução imediatamente ao sair do canal ou desmontar
+  // Força volume persistido no iframe
+  const enforceSavedVolume = useCallback(() => {
+    const currentVol = isMuted ? 0 : volume;
+    sendYtCommand('setVolume', [currentVol]);
+    if (!isMuted && currentVol > 0) {
+      sendYtCommand('unMute');
+    }
+  }, [isMuted, volume, sendYtCommand]);
+
+  // Sincronizar estado da música com o Socket.IO
   useEffect(() => {
     if (!socket || !channelId) return;
 
@@ -68,22 +80,29 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ channelId }) => {
       socket.off('music:sync', onMusicSync);
       sendYtCommand('stopVideo');
     };
-  }, [socket, channelId]);
+  }, [socket, channelId, sendYtCommand]);
 
+  // Quando a música muda ou inicia, aplica o volume em múltiplos tempos para travar na taxa escolhida (ex: 3%)
   useEffect(() => {
     if (!musicState.currentTrack) return;
 
-    const timer = setTimeout(() => {
-      sendYtCommand('setVolume', [isMuted ? 0 : volume]);
-      if (musicState.isPlaying) {
-        sendYtCommand('playVideo');
-      } else {
-        sendYtCommand('pauseVideo');
-      }
-    }, 400);
+    enforceSavedVolume();
+    const t1 = setTimeout(enforceSavedVolume, 200);
+    const t2 = setTimeout(enforceSavedVolume, 600);
+    const t3 = setTimeout(enforceSavedVolume, 1200);
 
-    return () => clearTimeout(timer);
-  }, [musicState.isPlaying, musicState.currentTrack?.youtubeId, volume, isMuted]);
+    if (musicState.isPlaying) {
+      sendYtCommand('playVideo');
+    } else {
+      sendYtCommand('pauseVideo');
+    }
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [musicState.isPlaying, musicState.currentTrack?.youtubeId, enforceSavedVolume, sendYtCommand]);
 
   const togglePlay = () => {
     if (!socket?.connected || !musicState.currentTrack) return;
@@ -92,8 +111,12 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ channelId }) => {
       channelId,
       isPlaying: nextState,
     });
-    if (nextState) sendYtCommand('playVideo');
-    else sendYtCommand('pauseVideo');
+    if (nextState) {
+      enforceSavedVolume();
+      sendYtCommand('playVideo');
+    } else {
+      sendYtCommand('pauseVideo');
+    }
   };
 
   const handleSkip = () => {
@@ -224,7 +247,7 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ channelId }) => {
               className="w-16 sm:w-20 h-1.5 bg-background-darkest rounded-lg appearance-none cursor-pointer accent-brand-500"
               title="Volume da Música"
             />
-            <span className="text-[10px] font-mono text-slate-400 w-6 text-right">
+            <span className="text-[10px] font-mono text-slate-400 w-6 text-right font-bold">
               {isMuted ? '0%' : `${volume}%`}
             </span>
           </div>
@@ -268,6 +291,7 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ channelId }) => {
               allow="autoplay; encrypted-media; picture-in-picture"
               title="Nexus YouTube Player"
               className="w-full h-full border-0"
+              onLoad={enforceSavedVolume}
             />
             <button
               onClick={() => setShowVideo(false)}
