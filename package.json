@@ -1,0 +1,26 @@
+{
+  "name": "discord-inspiracao",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Plataforma Web de Voz em Tempo Real com WebRTC, Socket.IO, React e Express",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -p \"[{name}]\" -n \"SERVER,CLIENT\" -c \"blue.bold,cyan.bold\" \"npm run dev --workspace=server\" \"npm run dev --workspace=client\"",
+    "dev:server": "npm run dev --workspace=server",
+    "dev:client": "npm run dev --workspace=client",
+    "build": "npm run build --workspaces",
+    "typecheck": "npm run typecheck --workspace=server && npm run typecheck --workspace=client",
+    "start": "npm run start --workspace=server",
+    "test": "node test_suite.cjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
+    "pg": "^8.23.0"
+  }
+}
