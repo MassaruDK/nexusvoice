@@ -42,6 +42,14 @@ app.use((req, res, next) => {
 });
 
 app.use('/api/auth', authRoutes);
+app.use('/api/users', requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const users = await AuthService.getAllUsers();
+    res.json({ users });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 app.use('/api/channels', channelRoutes);
 app.use('/api/messages', messageRoutes);
 

@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { AuthService, registerSchema, loginSchema } from '../services/authService.js';
+import { AuthService, registerSchema, loginSchema, updateProfileSchema } from '../services/authService.js';
 import { validateBody } from '../middlewares/validate.js';
 import { requireAuth } from '../middlewares/auth.js';
 import { authLimiter } from '../middlewares/rateLimit.js';
@@ -36,6 +36,16 @@ router.post('/login', authLimiter, validateBody(loginSchema), async (req: Reques
 
 router.get('/me', requireAuth, (req: Request, res: Response): void => {
   res.json({ user: req.user });
+});
+
+router.patch('/profile', requireAuth, validateBody(updateProfileSchema), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { user, token } = await AuthService.updateProfile(req.user!.id, req.body);
+    res.cookie(config.COOKIE_NAME, token, COOKIE_OPTIONS);
+    res.json({ user, token });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Erro ao atualizar perfil' });
+  }
 });
 
 router.post('/logout', (req: Request, res: Response): void => {
