@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: nexusvoice-backend
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build --workspace=server
+    startCommand: npm run start --workspace=server
+    envVars:
+      - key: DATABASE_URL
+        value: postgresql://neondb_owner:npg_aS07gMCecqYw@ep-hidden-glitter-acra0pq3-pooler.sa-east-1.aws.neon.tech/neondb?sslmode=require
+      - key: JWT_SECRET
+        value: super_secret_jwt_key_nexus_voice_production_2026
+      - key: CLIENT_URL
+        value: https://nexusvoice-hazel.vercel.app
+      - key: NODE_ENV
+        value: production
