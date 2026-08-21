@@ -4,7 +4,7 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { config } from './config.js';
 import { db } from './db/index.js';
-import { initSocketServer } from './socket/index.js';
+import { initSocketIO } from './socket/index.js';
 import authRoutes from './routes/auth.js';
 import channelRoutes from './routes/channels.js';
 import messageRoutes from './routes/messages.js';
@@ -16,21 +16,8 @@ const app = express();
 const server = http.createServer(app);
 
 // CORS
-const allowedOrigins = [
-  config.CLIENT_URL,
-  'https://nexusvoice-hazel.vercel.app',
-  'http://localhost:5173',
-  'http://localhost:3000',
-].filter(Boolean);
-
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app') || origin.endsWith('.loca.lt')) {
-      callback(null, true);
-    } else {
-      callback(null, true);
-    }
-  },
+  origin: (origin, callback) => callback(null, true),
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'Bypass-Tunnel-Reminder']
@@ -66,21 +53,8 @@ app.use('/api/messages', messageRoutes);
 app.use(errorHandler);
 
 // Inicializa WebSocket
-initSocketServer(server);
+initSocketIO(server);
 
-// Inicializa Banco e Servidor
-async function bootstrap() {
-  try {
-    await db.init();
-    console.log('[DB] Conectado e schema inicializado');
-
-    server.listen(config.PORT, () => {
-      console.log(`[SERVER] Nexus Voice Server rodando na porta ${config.PORT}`);
-    });
-  } catch (err) {
-    console.error('[SERVER] Erro fatal ao inicializar:', err);
-    process.exit(1);
-  }
-}
-
-bootstrap();
+server.listen(config.PORT, () => {
+  console.log(`[SERVER] Nexus Voice Server rodando na porta ${config.PORT}`);
+});
