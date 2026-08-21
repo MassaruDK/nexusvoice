@@ -138,7 +138,8 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Informe email e senha' });
     }
 
-    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email.toLowerCase()]);
+    const identifier = email.trim().toLowerCase();
+    const result = await pool.query('SELECT * FROM users WHERE LOWER(email) = $1 OR LOWER(username) = $1', [identifier]);
     const user = result.rows[0];
 
     if (!user || !bcrypt.compareSync(password, user.password_hash)) {

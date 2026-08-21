@@ -56,7 +56,7 @@ class ApiService {
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      const errorMsg = data.error || (data.details ? `${data.error}: ${data.details}` : 'Erro na requisição');
+      const errorMsg = data.details ? `${data.error || 'Dados inválidos'}: ${data.details}` : (data.error || 'Erro na requisição');
       throw new Error(errorMsg);
     }
 
