@@ -47,6 +47,7 @@ class ApiService {
         ...options,
         headers,
         credentials: 'include',
+        cache: 'no-store',
       });
     } catch (err: any) {
       throw new Error(`Falha de conexão com o servidor. Verifique a URL do backend.`);
@@ -128,7 +129,7 @@ class ApiService {
     return this.request<{ channels: VoiceChannel[] }>('/channels');
   }
 
-  async createChannel(channel: { name: string; description?: string }): Promise<{ channel: VoiceChannel }> {
+  async createChannel(channel: { name: string; description?: string; type?: 'VOICE' | 'TEXT' }): Promise<{ channel: VoiceChannel }> {
     return this.request<{ channel: VoiceChannel }>('/channels', {
       method: 'POST',
       body: JSON.stringify(channel),
